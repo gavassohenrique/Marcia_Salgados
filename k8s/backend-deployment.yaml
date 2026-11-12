@@ -41,11 +41,6 @@ spec:
                 secretKeyRef:
                   name: db-secret
                   key: POSTGRES_DB
-            - name: APP_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: db-secret
-                  key: APP_ADMIN_PASSWORD
             - name: FLASK_SECRET_KEY
               valueFrom:
                 secretKeyRef:

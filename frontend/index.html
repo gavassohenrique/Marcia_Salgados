@@ -22,8 +22,11 @@
     <a href="#cadastro">Novo produto</a>
     <a href="#historico">Movimentações</a>
     <a href="#pedidos">Pedidos</a>
+    <a id="usuariosNav" href="#usuarios" hidden>Usuários</a>
   </nav>
   <div class="header-actions">
+    <span id="usuarioAtual" class="current-user" hidden></span>
+    <button id="alterarSenhaBtn" class="button outline" type="button" hidden>Minha senha</button>
     <div class="system-status offline" id="systemStatus" role="status" aria-live="polite"><span aria-hidden="true"></span><span id="systemStatusText">Verificando...</span></div>
     <button id="sairBtn" class="button outline logout-button" type="button" hidden>Sair</button>
   </div>
@@ -35,7 +38,7 @@
     <h1>Organização para produzir <span>sem desperdício.</span></h1>
     <p>Cadastre produtos, acompanhe quantidades e registre cada entrada ou saída em um só lugar.</p>
     <div class="buttons">
-      <a href="#cadastro" class="button primary">Cadastrar produto <span aria-hidden="true">→</span></a>
+      <a href="#cadastro" class="button primary admin-only">Cadastrar produto <span aria-hidden="true">→</span></a>
       <a href="#produtos" class="button secondary">Consultar estoque</a>
     </div>
   </div>
@@ -71,7 +74,7 @@
       <h2>Produtos cadastrados</h2>
       <p>Consulte os dados e registre entradas ou saídas.</p>
     </div>
-    <a href="#cadastro" class="button outline">+ Adicionar produto</a>
+    <a href="#cadastro" class="button outline admin-only">+ Adicionar produto</a>
   </div>
   <div class="catalog-tools" aria-label="Filtros do catálogo">
     <label class="search-field" for="buscaProduto">Buscar produto
@@ -88,7 +91,7 @@
     <div id="status" class="status" role="status" aria-live="polite">Carregando produtos...</div>
   <div id="lista" class="products"></div>
 </section>
-<section id="cadastro" class="section form-section">
+<section id="cadastro" class="section form-section admin-only">
   <div class="form-intro">
     <span class="eyebrow eyebrow-light">NOVO PRODUTO</span>
     <h2>Cadastre em poucos passos.</h2>
@@ -149,6 +152,21 @@
   </form>
   <div id="pedidosLista" class="orders" aria-live="polite"></div>
 </section>
+<section id="usuarios" class="section" hidden>
+  <div class="section-heading">
+    <span class="eyebrow">ADMINISTRAÇÃO</span>
+    <h2>Gerenciar usuários</h2>
+    <p>O administrador cadastra contas internas, define perfis e controla o acesso ao estoque.</p>
+  </div>
+  <form id="usuarioForm" class="user-form">
+    <div class="field"><label for="usuarioNome">Nome *</label><input id="usuarioNome" name="nome" maxlength="100" autocomplete="name" required></div>
+    <div class="field"><label for="usuarioEmail">E-mail *</label><input id="usuarioEmail" name="email" type="email" maxlength="254" autocomplete="off" required></div>
+    <div class="field"><label for="usuarioSenha">Senha inicial *</label><input id="usuarioSenha" name="senha" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><small>Use pelo menos 12 caracteres; não reutilize senhas.</small></div>
+    <div class="field"><label for="usuarioPerfil">Perfil *</label><select id="usuarioPerfil" name="perfil"><option value="FUNCIONARIO">Funcionário</option><option value="ADMIN">Administrador</option></select></div>
+    <div class="form-actions"><button class="button primary" type="submit">Cadastrar usuário</button><p id="usuarioMensagem" role="status" aria-live="polite"></p></div>
+  </form>
+  <div id="usuariosLista" class="users-list" aria-live="polite"></div>
+</section>
 <section id="historico" class="section">
   <div class="section-heading">
     <span class="eyebrow">RASTREABILIDADE</span>
@@ -177,12 +195,33 @@
     <div class="dialog-actions"><button id="cancelarEdicao" class="button outline" type="button">Cancelar</button><button class="button primary" type="submit">Salvar alterações</button></div>
   </form>
 </dialog>
+<dialog id="alterarSenhaDialog" class="edit-dialog" aria-labelledby="alterarSenhaTitulo">
+  <form id="alterarSenhaForm" class="dialog-form">
+    <div class="dialog-heading"><h2 id="alterarSenhaTitulo">Alterar minha senha</h2><button type="button" class="close-dialog" id="fecharSenhaDialog" aria-label="Fechar">×</button></div>
+    <label for="senhaAtual">Senha atual</label><input id="senhaAtual" type="password" autocomplete="current-password" required>
+    <label for="senhaNova">Nova senha (mínimo 12 caracteres)</label><input id="senhaNova" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+    <label for="senhaConfirmacao">Confirme a nova senha</label><input id="senhaConfirmacao" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+    <p id="alterarSenhaMensagem" role="alert" aria-live="polite"></p>
+    <div class="dialog-actions"><button class="button primary" type="submit">Salvar nova senha</button></div>
+  </form>
+</dialog>
+<dialog id="resetSenhaDialog" class="edit-dialog" aria-labelledby="resetSenhaTitulo">
+  <form id="resetSenhaForm" class="dialog-form">
+    <div class="dialog-heading"><h2 id="resetSenhaTitulo">Redefinir senha</h2><button type="button" class="close-dialog" id="fecharResetDialog" aria-label="Fechar">×</button></div>
+    <p id="resetUsuarioNome"></p>
+    <label for="resetSenha">Nova senha (mínimo 12 caracteres)</label><input id="resetSenha" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+    <p id="resetMensagem" role="alert" aria-live="polite"></p>
+    <div class="dialog-actions"><button class="button primary" type="submit">Redefinir senha</button></div>
+  </form>
+</dialog>
 <div id="loginOverlay" class="login-overlay" role="dialog" aria-modal="true" aria-labelledby="loginTitulo">
   <form id="loginForm" class="login-panel">
     <span class="eyebrow">ÁREA RESTRITA</span>
     <h2 id="loginTitulo">Acesse o painel</h2>
-    <p>Digite a senha configurada no arquivo .env para consultar e movimentar o estoque.</p>
-    <label for="loginSenha">Senha de acesso</label>
+    <p>Entre com seu e-mail e senha cadastrados pelo administrador.</p>
+    <label for="loginEmail">E-mail</label>
+    <input id="loginEmail" name="email" type="email" autocomplete="username" required>
+    <label for="loginSenha">Senha</label>
     <input id="loginSenha" name="senha" type="password" autocomplete="current-password" required>
     <button class="button primary" type="submit">Entrar no sistema</button>
     <p id="loginMensagem" role="alert" aria-live="polite"></p>

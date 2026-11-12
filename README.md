@@ -1,38 +1,61 @@
 # Márcia Salgados — Controle de estoque e rastreabilidade
 
-Sistema web acadêmico para cadastro de produtos, controle de estoque e associação de **saídas de estoque a pedidos de referência**. O frontend é HTML/CSS/JavaScript; a API utiliza Python/Flask; a persistência fica no PostgreSQL. Os três serviços são integrados com Docker Compose.
+Projeto acadêmico em **Flask + PostgreSQL + HTML/CSS/JavaScript + Docker Compose**, com cadastro de produtos, controle de estoque, pedidos de referência e rastreabilidade de quem movimentou os produtos.
 
-> **Escopo:** pedidos de referência permitem identificar cliente e vincular movimentações de saída, mas **não** constituem um módulo financeiro de vendas, faturamento, emissão fiscal ou baixa automática de vários itens. Relatórios PDF e envio por e-mail são ideias para evolução futura.
+> Escopo: os pedidos identificam clientes e podem ser vinculados às saídas, mas este sistema **não** faz faturamento, pagamentos ou emissão de notas fiscais. A implantação é **local**, para o computador de casa e para a apresentação. Não é um serviço pronto para ser exposto publicamente na internet.
 
 ## Funcionalidades
 
-- Login por senha configurada fora do código; sessão com cookie HttpOnly e proteção CSRF.
-- Cadastro, edição e pesquisa de produtos; estoque mínimo e indicadores.
-- Entrada e saída com transações, bloqueio SQL (`FOR UPDATE`) para não perder atualizações concorrentes e validação contra estoque negativo.
-- Cadastro de pedido de referência com cliente, e vínculo opcional de pedido na saída de estoque.
-- Histórico de movimentações (50 por página), carregamento incremental e exportação CSV dos registros carregados.
-- Formatação monetária brasileira, edição em modal, status real da API e layout móvel com navegação acessível.
-- Docker Compose, configuração de Kubernetes para ambiente de demonstração e testes automatizados em Python.
+- Login com **e-mail e senha individual**, usuários armazenados no **PostgreSQL** e senhas com **hash Argon2id** (nunca texto puro).
+- Perfis **ADMIN** e **FUNCIONARIO**. Administradores criam usuários, alteram permissões, desativam contas, redefinem senhas e cadastram/editam produtos. Funcionários consultam produtos, registram pedidos e movimentam estoque.
+- Alteração da própria senha. Mudanças de senha, perfil ou desativação invalidam as sessões anteriores do usuário.
+- Proteção CSRF, cookie de sessão HttpOnly/SameSite, bloqueio temporário após cinco senhas erradas para uma conta, e respostas de erro em JSON.
+- Cadastro e edição de produtos; filtro por estoque mínimo; entradas e saídas transacionais usando `SELECT ... FOR UPDATE`.
+- Histórico com identificação de quem realizou cada movimentação; registros anteriores à implantação do recurso continuam preservados, sem atribuição de usuário.
+- Integração local com Nginx no frontend, Flask no backend e PostgreSQL, sem expor o banco na rede.
 
-## Início rápido (Windows / PowerShell)
+## Primeira configuração no PC de casa (Windows / PowerShell)
 
-Requisitos: Git, Docker Desktop com Compose, porta local 8080 disponível.
+**Requisitos:** Git, Docker Desktop instalado e iniciado. Não precisa instalar Flask ou PostgreSQL separadamente — o Docker cuida disso. O Live Server do VS Code não executa a API.
+
+Abra o PowerShell **na pasta do projeto** (a que contém `docker-compose.yaml`) e execute:
 
 ```powershell
-# Execute na pasta do projeto:
-Copy-Item .env.example .env
+git pull origin main
+# Só copie o exemplo se você AINDA não tiver um .env configurado:
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 notepad .env
 ```
 
-**Troque as três configurações sensíveis** por valores fortes: `POSTGRES_PASSWORD`, `APP_ADMIN_PASSWORD` e `FLASK_SECRET_KEY` (mínimo recomendado de 32 bytes aleatórios). O `.env` está no `.gitignore` e **não deve ser enviado para o GitHub**.
+Configure as quatro variáveis no arquivo **`.env` (nunca em `.env.example`)**:
 
-Para gerar uma chave aleatória para copiar no `.env`:
+```dotenv
+POSTGRES_USER=user
+POSTGRES_DB=appdb
+POSTGRES_PASSWORD=SUBSTITUA_POR_SENHA_FORTE_DO_BANCO
+FLASK_SECRET_KEY=SUBSTITUA_POR_CHAVE_ALEATORIA
+```
+
+- `POSTGRES_PASSWORD`: senha **da conexão ao banco**. Não é a senha do painel.
+- `FLASK_SECRET_KEY`: chave usada para assinar os cookies de sessão; mantenha privada e estável entre reinicializações.
+- `POSTGRES_USER` e `POSTGRES_DB`: podem ficar com os valores de exemplo se o banco for novo.
+- **Não use `APP_ADMIN_PASSWORD`:** o login do painel não depende mais dessa variável. Senhas de usuários serão guardadas como hashes no PostgreSQL.
+
+Para gerar uma chave aleatória para `FLASK_SECRET_KEY`:
 
 ```powershell
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Em seguida:
+Se não tiver Python instalado no Windows, você pode gerar a chave em um terminal PowerShell com:
+
+```powershell
+$b = New-Object byte[] 32
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+[BitConverter]::ToString($b).Replace('-','').ToLower()
+```
+
+Depois de salvar `.env`, verifique e suba os serviços:
 
 ```powershell
 docker compose config
@@ -40,54 +63,60 @@ docker compose up -d --build
 docker compose ps
 ```
 
-- **Painel:** http://localhost:8080
-- **API (local):** http://localhost:3000
-- **Saúde da API e do banco:** http://localhost:3000/health
+**Primeiro administrador (uma única vez, depois que o backend estiver saudável):**
 
-Faça login no painel com `APP_ADMIN_PASSWORD` do arquivo `.env`. Os serviços foram publicados apenas em `127.0.0.1`, para uso local. A porta PostgreSQL não é publicada na máquina host.
+```powershell
+docker compose exec backend python manage.py criar-admin
+```
 
-### Conferir os dados no banco
+O comando pede **nome, e-mail, senha e confirmação**. A senha não aparece enquanto você digita, não fica no histórico do terminal e é persistida no banco **apenas como hash Argon2id**. Use senha longa, exclusiva, de no mínimo 12 caracteres. Se já houver usuários, o comando não recriará nem sobrescreverá contas; use o painel administrativo para adicionar outras.
+
+Abra **http://localhost:8080** e entre com o e-mail e senha criados. Para verificar os serviços:
+
+- http://localhost:8080/api/health — JSON com `status: ok` e `banco: conectado` quando ambos estiverem saudáveis.
+- http://localhost:8080/api/auth/status — JSON de status de autenticação (sem exibir senhas).
+
+## Criar usuários e registrar operações
+
+1. Entre como **Administrador**.
+2. Abra **Usuários** no menu. Preencha nome, e-mail, senha inicial e perfil (Administrador ou Funcionário).
+3. Um funcionário pode consultar produtos, cadastrar pedidos de referência e registrar entradas/saídas. Não pode cadastrar/editar produtos nem administrar usuários.
+4. Cada entrada/saída registra o **nome do usuário autenticado** no histórico. Registros antigos são mantidos sem autor identificado.
+5. Para trocar sua senha, use **Minha senha**. O administrador também pode redefinir senhas de outros usuários ou desativá-los.
+
+Contas não são cadastradas publicamente. A primeira conta é criada por um comando local autorizado. Caso a senha de todos os administradores seja perdida, será necessária recuperação administrativa controlada no servidor; não há formulário público de redefinição.
+
+## Apresentação acadêmica em outro computador
+
+Se você apresentar **no mesmo computador de casa**, basta iniciar o Docker e entrar com suas credenciais.
+
+Se apresentar **em outro computador**, clone o repositório, instale o Docker Desktop, crie um `.env` próprio (não copie suas senhas pessoais), execute `docker compose up -d --build`, e cadastre **um novo administrador** pelo comando acima. A instalação começa com seu próprio banco de dados local. Cadastre usuários e produtos **fictícios** para demonstração. O GitHub **não sincroniza automaticamente os dados** do PostgreSQL entre computadores.
+
+Para comprovar o fluxo na apresentação: faça login como admin, crie um funcionário, entre como funcionário, registre uma movimentação, volte para o admin e mostre o autor no histórico. Prepare isso antes da aula; não conte com a instalação de última hora.
+
+## Banco de dados antigo: preservar os dados
+
+A inicialização do backend executa migrações **aditivas**: cria a tabela `usuarios` e a coluna `movimentacoes.usuario_id` se ainda não existirem, sem apagar produtos e movimentações. Não apague volumes para tentar corrigir um erro: **NÃO use `docker compose down -v`**.
+
+O `database/init.sql` só roda automaticamente quando o volume PostgreSQL é criado pela primeira vez. Para volumes antigos, a API também prepara o esquema ao iniciar.
+
+**Atenção:** se a instância antiga foi criada com `POSTGRES_PASSWORD=password`, trocar a variável no `.env` não altera automaticamente a senha já armazenada dentro do banco. Você precisa atualizar a senha **no banco existente** de forma controlada, ou reutilizar temporariamente a senha anterior até migrar. Nunca apague o volume para contornar isso. Se encontrar falha de autenticação do PostgreSQL, preserve o volume e confira os logs antes de executar mudanças.
+
+Os dados ficam no volume `postgres_data` do Compose, não dentro do repositório Git. Faça backups para dados que importem. Para conferência local (valores padrão do exemplo):
 
 ```powershell
 docker compose exec postgres psql -U user -d appdb
 ```
 
-Se alterar `POSTGRES_USER` ou `POSTGRES_DB` no `.env`, use seus valores no comando. Consultas úteis:
-
 ```sql
-SELECT id, nome, estoque, estoque_minimo FROM produtos ORDER BY id DESC;
-SELECT id, cliente, referencia FROM pedidos ORDER BY id DESC;
-SELECT id, produto_id, tipo, quantidade, pedido_id, criado_em FROM movimentacoes ORDER BY id DESC;
+SELECT id, nome, email, perfil, ativo FROM usuarios ORDER BY id;
+SELECT id, nome, estoque FROM produtos ORDER BY id;
+SELECT id, produto_id, tipo, quantidade, usuario_id FROM movimentacoes ORDER BY id DESC;
 ```
 
-O arquivo `database/init.sql` é aplicado **somente ao criar um volume vazio**. Se o volume já existir, a API cria as tabelas ausentes sem apagar registros anteriores. Não execute `docker compose down -v` para tentar corrigir erros: **o `-v` apaga o volume do banco**.
+## Testes e diagnóstico
 
-**Atenção ao banco anterior:** se um volume antigo foi criado com a senha `password`, mudar `POSTGRES_PASSWORD` no `.env` **não altera a senha armazenada no PostgreSQL**. Para preservar dados, entre no banco localmente com `docker compose exec postgres psql -U user -d appdb`, execute `ALTER ROLE "user" WITH PASSWORD 'SUA_NOVA_SENHA_FORTE';`, saia com `\q` e reinicie o backend. Substitua os valores de exemplo pelos da sua instalação e não grave a senha no histórico de comandos. Nunca apague o volume para contornar esse problema.
-
-## Problemas de login: `Forbidden` ou resposta inválida
-
-O painel **não é uma página estática independente**: ele depende da API Flask, acessível via proxy Nginx em `/api/`.
-
-1. Abra o endereço **http://localhost:8080** depois de executar `docker compose up -d --build`. Não use "Open with Live Server", `file://`, GitHub Pages ou visualização estática do VS Code para realizar o login.
-2. No navegador, confira **http://localhost:8080/api/health**. A resposta esperada, quando o backend e banco estiverem saudáveis, é JSON como `{"status":"ok","banco":"conectado"}`.
-3. No PowerShell, na pasta do projeto, execute os comandos a seguir e confira o status e os logs:
-
-```powershell
-docker compose config
-docker compose ps
-docker compose logs --tail=100 frontend
-docker compose logs --tail=100 backend
-curl.exe -i http://localhost:8080/api/health
-curl.exe -i http://localhost:8080/api/auth/status
-```
-
-O caminho `/api/auth/status` deve retornar JSON com `configurado` e `autenticado`; não precisa de senha. O login é `POST /api/auth/login`, não uma página HTML. Se a resposta começar com `Forbidden` e não for JSON, o bloqueio pode estar no endereço/hospedagem ou no proxy, **não é possível concluir que a senha esteja incorreta**. Se os testes acima retornarem JSON válido, verifique a aba Rede (Network) do navegador para a requisição `POST /api/auth/login` e confira apenas o status HTTP e o tipo da resposta; **não compartilhe sua senha nem tokens de sessão**.
-
-Se a porta 8080 já estiver em uso por outra aplicação, encerre esse serviço antes de iniciar o Compose ou ajuste a publicação da porta no `docker-compose.yaml`.
-
-## Testes
-
-Para instalar e executar os testes Python em um ambiente com acesso às dependências:
+Testes de unidade/mocks de banco (em ambiente com Python e dependências instaladas):
 
 ```powershell
 python -m pip install -r backend/requirements.txt
@@ -95,54 +124,31 @@ python -m pytest backend/tests -q
 node --check frontend/script.js
 ```
 
-O comando `npm test` (se Node estiver instalado) chama os mesmos testes Python. Os arquivos de testes antigos de Express/Node foram removidos, pois o backend atual utiliza Flask.
-
-Os testes Python cobrem validações, autenticação/CSRF e rotas usando **mocks de banco**. Eles não substituem testes de integração com PostgreSQL real e Docker. O uso completo deve ser verificado com Compose na máquina de apresentação.
-
-Para ver logs:
+Para verificar e testar a aplicação completa, use Docker/PostgreSQL reais, depois confira no navegador login, permissões, cadastro, estoque, histórico, alteração de senha e invalidação de sessões. Os testes Python com mocks **não substituem** testes de integração com PostgreSQL real.
 
 ```powershell
+docker compose ps
 docker compose logs --tail=100 backend
 docker compose logs --tail=100 frontend
 docker compose logs --tail=100 postgres
+curl.exe -i http://localhost:8080/api/health
+curl.exe -i http://localhost:8080/api/auth/status
 ```
 
-## Rotas principais
-
-| Método | Rota | Descrição |
-|---|---|---|
-| GET | `/health` | Consulta de saúde do banco, sem exigir login |
-| GET / POST | `/auth/status`, `/auth/login` | Estado de sessão e autenticação |
-| POST | `/auth/logout` | Termina sessão (requer CSRF) |
-| GET / POST | `/produtos` | Listagem e cadastro |
-| PUT | `/produtos/{id}` | Edição sem alterar saldo |
-| GET / POST | `/pedidos` | Pedido de referência |
-| POST | `/estoque/movimentacao` | Entrada/saída; aceita `pedido_id` apenas em saídas |
-| GET | `/movimentacoes?limite=50&offset=0` | Histórico paginado |
-
-No navegador, as rotas são acessadas via proxy Nginx em `/api/`. A API exige login e cabeçalho `X-CSRF-Token` para gravações, conforme o estado retornado por `/auth/status`.
-
-## Kubernetes (opcional)
-
-O diretório `k8s/` é um exemplo de implantação acadêmica, **não um pacote de produção pronto**. Possui PVC persistente, schema SQL alinhado ao backend e acesso via Ingress HTTPS (exige TLS válido e controlador Ingress Nginx).
-
-1. Crie `k8s/secret.yaml` a partir de `k8s/secret.example.yaml`; substitua os valores. O arquivo real é ignorado pelo Git.
-2. Configure um secret TLS `msalgados-tls` para o host de demonstração, `msalgados.local`.
-3. Ajuste as imagens e o armazenamento ao seu cluster e aplique os manifests. Dependendo do cluster, é necessário provisionamento de PV/StorageClass.
-4. Monitore rollout, saúde do banco e logs; **não considere essa implantação testada apenas porque os YAMLs são válidos**.
-
-Para implantação pública real ainda são necessários HTTPS com certificado confiável, rotação de segredos, proteção contra tentativas repetidas de login, backups, observabilidade e testes completos de segurança.
+Se vir `Forbidden`, HTML inesperado ou `Failed to parse JSON` ao entrar, verifique se abriu **http://localhost:8080** com Docker em execução. **Não use Live Server** para o sistema completo.
 
 ## Organização
 
 ```text
-backend/     API Flask e testes pytest
-database/    SQL para bootstrap inicial
-frontend/    Painel web e Nginx
-k8s/         Exemplo de deployment, services, PVC e segredos de exemplo
-PDF/         Documentos acadêmicos
+backend/app.py               API Flask, autenticação e migrações aditivas
+backend/manage.py            cadastro interativo do primeiro administrador
+backend/tests/              testes automatizados
+database/init.sql            inicialização de banco novo
+frontend/                    painel web, administração e Nginx
+k8s/                         exemplo acadêmico opcional de Kubernetes
+PDF/                         documentos acadêmicos
 ```
 
-## Apresentação acadêmica
+O diretório `k8s/` é um **exemplo acadêmico**, não uma implantação pública pronta. Exige instalação de TLS, armazenamento persistente e configuração própria; a versão Docker Compose local é a recomendada para apresentação.
 
-O arquivo [ROTEIRO_APRESENTACAO.md](ROTEIRO_APRESENTACAO.md) apresenta uma demonstração proposta. Mostre apenas o que funcionar efetivamente no computador da apresentação. **Não declare execução de Docker, pytest ou PostgreSQL se esses testes não tiverem sido realizados.**
+**Status de validação:** a sintaxe e os fluxos com API simulada podem ser verificados sem banco; um resultado de navegação simulada ou YAML válido não comprova execução real de Flask + PostgreSQL ou implantação Kubernetes. Antes de apresentar, faça os testes locais.

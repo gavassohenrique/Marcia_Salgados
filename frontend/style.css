@@ -523,3 +523,18 @@ button:disabled { opacity: .6; cursor: wait; }
   .login-panel { padding: 26px 20px; }
   .dialog-actions { flex-direction: column; }
 }
+
+/* Área administrativa: aplica-se somente depois do login de administrador. */
+[hidden] { display: none !important; }
+.current-user { font-size: 12px; font-weight: 600; color: var(--muted); max-width: 200px; }
+.user-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; padding: 24px; background: #fff; border: 1px solid var(--border); border-radius: 18px; }
+.user-form .field { min-width: 0; }
+.user-form .field small { display: block; margin-top: 5px; color: var(--muted); }
+.user-form .form-actions { grid-column: 1/-1; }
+.users-list { display: grid; gap: 10px; margin-top: 20px; }
+.user-item { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px; border: 1px solid var(--border); background: #fff; border-radius: 14px; }
+.user-item small { display: block; color: var(--muted); overflow-wrap: anywhere; }
+.user-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.user-actions .button { font-size: 12px; padding: 9px 12px; }
+@media (max-width: 850px) { .user-item { flex-direction: column; align-items: stretch; } .current-user { display: none; } }
+@media (max-width: 600px) { .user-form { grid-template-columns: 1fr; padding: 18px; } .user-actions { flex-direction: column; } }

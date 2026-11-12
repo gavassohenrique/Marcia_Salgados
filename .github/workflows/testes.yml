@@ -1,0 +1,45 @@
+name: Testes da API e autenticacao
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: senha-efemera-apenas-no-ci
+          POSTGRES_DB: test_marcia_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U user -d test_marcia_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: senha-efemera-apenas-no-ci
+      POSTGRES_DB: test_marcia_ci
+      FLASK_SECRET_KEY: chave-efemera-apenas-no-ci-nao-usar-producao
+      COOKIE_SECURE: "false"
+      TEST_POSTGRES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependencias
+        run: python -m pip install -r backend/requirements.txt
+      - name: Sintaxe do frontend
+        run: node --check frontend/script.js
+      - name: Pytest unitario e PostgreSQL real isolado
+        run: python -m pytest backend/tests -q

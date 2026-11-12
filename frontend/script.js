@@ -8,6 +8,8 @@ const filtroEstoque = document.getElementById("filtroEstoque");
 const editarDialog = document.getElementById("editarDialog");
 const loginOverlay = document.getElementById("loginOverlay");
 let csrfToken = "";
+let usuarioAtual = null;
+let resetUsuarioId = null;
 let produtosCache = [];
 let pedidosCache = [];
 let historicoCache = [];
@@ -43,12 +45,29 @@ function formatarData(valor) {
 function mostrarLogin(mensagemErro = "") {
   loginOverlay.hidden = false;
   document.getElementById("sairBtn").hidden = true;
-  if (mensagemErro) document.getElementById("loginMensagem").textContent = mensagemErro;
+  document.getElementById("alterarSenhaBtn").hidden = true;
+  document.getElementById("usuarioAtual").hidden = true;
+  document.getElementById("loginMensagem").textContent = mensagemErro;
 }
 function ocultarLogin() {
   loginOverlay.hidden = true;
   document.getElementById("sairBtn").hidden = false;
+  document.getElementById("alterarSenhaBtn").hidden = false;
   document.getElementById("loginMensagem").textContent = "";
+}
+
+function aplicarPerfil(usuario) {
+  usuarioAtual = usuario;
+  const administrador = usuario?.perfil === "ADMIN";
+  document.querySelectorAll(".admin-only").forEach(el => { el.hidden = !administrador; });
+  document.getElementById("usuariosNav").hidden = !administrador;
+  document.getElementById("usuarios").hidden = !administrador;
+  const texto = document.getElementById("usuarioAtual");
+  texto.textContent = usuario ? `${usuario.nome} · ${administrador ? "Administrador" : "Funcionário"}` : "";
+  texto.hidden = !usuario;
+  if (!administrador) {
+    document.getElementById("usuariosLista").textContent = "";
+  }
 }
 
 async function apiFetch(caminho, options = {}) {
@@ -56,28 +75,19 @@ async function apiFetch(caminho, options = {}) {
   if (options.body) headers["Content-Type"] = "application/json";
   if (options.method && options.method.toUpperCase() !== "GET") headers["X-CSRF-Token"] = csrfToken;
   const response = await fetch(`${API}${caminho}`, { ...options, headers, credentials: "same-origin" });
-  if (response.status === 401 || response.status === 403) mostrarLogin("Sua sessão expirou. Entre novamente.");
+  if (response.status === 401) mostrarLogin("Sua sessão expirou. Entre novamente.");
   return response;
 }
 
 async function obterJson(response) {
-  // Um proxy, Live Server ou hospedagem estática pode devolver HTML/texto
-  // (por exemplo, "Forbidden") em vez da resposta JSON da API Flask.
-  // Mostre um diagnóstico útil sem expor a resposta bruta ao usuário.
   const corpo = await response.text();
   let resultado;
-  try {
-    resultado = JSON.parse(corpo);
-  } catch {
-    const status = `HTTP ${response.status}`;
-    const causa = response.status === 403
-      ? "O acesso à API foi bloqueado pelo servidor ou proxy"
-      : "A API retornou uma resposta inválida";
-    throw new Error(`${causa} (${status}). Abra o painel pelo Docker em http://localhost:8080 (não pelo Live Server) e confira a rota /api/ e os containers.`);
+  try { resultado = JSON.parse(corpo); }
+  catch {
+    const detalhe = response.status === 403 ? "Acesso bloqueado pelo servidor/proxy" : "Resposta inválida da API";
+    throw new Error(`${detalhe} (HTTP ${response.status}). Acesse pelo Docker em http://localhost:8080, não pelo Live Server.`);
   }
-  if (!response.ok) {
-    throw new Error(resultado?.erro || resultado?.message || `Não foi possível concluir a solicitação (HTTP ${response.status}).`);
-  }
+  if (!response.ok) throw new Error(resultado?.erro || `Falha na solicitação (HTTP ${response.status}).`);
   return resultado;
 }
 
@@ -106,9 +116,12 @@ async function inicializar() {
     const response = await fetch(`${API}/auth/status`, { cache: "no-store" });
     const estado = await obterJson(response);
     if (!estado.configurado) {
-      mostrarLogin("Configure o acesso no arquivo .env antes de iniciar o sistema.");
+      mostrarLogin("Configure FLASK_SECRET_KEY no arquivo .env antes de iniciar.");
+    } else if (estado.primeiro_acesso) {
+      mostrarLogin("Ainda não existe administrador. No PowerShell, execute: docker compose exec backend python manage.py criar-admin");
     } else if (estado.autenticado) {
       csrfToken = estado.csrf;
+      aplicarPerfil(estado.usuario);
       ocultarLogin();
       await atualizarDados();
     } else {
@@ -120,7 +133,8 @@ async function inicializar() {
 }
 
 async function atualizarDados() {
-  await Promise.all([carregarProdutos(), carregarPedidos(), carregarHistorico(true)]);
+  await Promise.all([carregarProdutos(), carregarPedidos(), carregarHistorico(true),
+    usuarioAtual?.perfil === "ADMIN" ? carregarUsuarios() : Promise.resolve()]);
   await verificarSaude();
 }
 
@@ -132,10 +146,12 @@ document.getElementById("loginForm").addEventListener("submit", async event => {
     const response = await fetch(`${API}/auth/login`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ senha: document.getElementById("loginSenha").value })
+      body: JSON.stringify({ email: document.getElementById("loginEmail").value.trim(),
+                             senha: document.getElementById("loginSenha").value })
     });
     const resultado = await obterJson(response);
     csrfToken = resultado.csrf;
+    aplicarPerfil(resultado.usuario);
     document.getElementById("loginSenha").value = "";
     ocultarLogin();
     await atualizarDados();
@@ -147,8 +163,13 @@ document.getElementById("loginForm").addEventListener("submit", async event => {
 document.getElementById("sairBtn").addEventListener("click", async () => {
   try { await apiFetch("/auth/logout", { method: "POST" }); } catch { /* sessão local também termina */ }
   csrfToken = "";
+  aplicarPerfil(null);
   produtosCache = [];
+  pedidosCache = [];
+  historicoCache = [];
   lista.innerHTML = "";
+  document.getElementById("historicoLista").textContent = "";
+  document.getElementById("pedidosLista").textContent = "";
   mostrarLogin();
 });
 
@@ -192,7 +213,7 @@ function renderizarProdutos() {
       <div class="product-content">
         <div class="product-topline"><h3>${escapar(produto.nome)}</h3><span class="stock-badge ${baixo ? "low" : ""}">${baixo ? "Estoque baixo" : "Disponível"}</span></div>
         <div class="price">${formatarMoeda(produto.preco)}</div>
-        <button class="button outline edit-product" type="button">Editar produto</button>
+        ${usuarioAtual?.perfil === "ADMIN" ? '<button class="button outline edit-product" type="button">Editar produto</button>' : ""}
         <div class="stock-info"><div><span>Em estoque</span><strong>${produto.estoque}</strong></div><div><span>Mínimo</span><strong>${produto.estoque_minimo}</strong></div></div>
       </div>
       <form class="movement-form">
@@ -202,7 +223,7 @@ function renderizarProdutos() {
         <select name="pedido_id" class="order-select" aria-label="Pedido vinculado" disabled><option value="">Sem pedido vinculado</option>${pedidosCache.map(p => `<option value="${p.id}">#${p.id} — ${escapar(p.cliente)}</option>`).join("")}</select>
         <button class="button primary" type="submit">Confirmar movimentação</button><p class="movement-message" aria-live="polite"></p>
       </form>`;
-    card.querySelector(".edit-product").addEventListener("click", () => abrirEdicao(produto));
+    card.querySelector(".edit-product")?.addEventListener("click", () => abrirEdicao(produto));
     const movement = card.querySelector(".movement-form");
     const tipo = movement.querySelector('[name="tipo"]');
     const pedido = movement.querySelector('[name="pedido_id"]');
@@ -351,7 +372,7 @@ function renderizarHistorico() {
     return `<div class="history-item">
       <div class="history-product"><span class="history-symbol" aria-hidden="true">${entrada ? "+" : "−"}</span>
       <div><strong>${escapar(mov.produto)}</strong><p>${escapar(mov.motivo || "Sem motivo informado")}</p>
-      <small>${formatarData(mov.criado_em)}${mov.pedido_id ? ` · Pedido #${mov.pedido_id} ${escapar(mov.pedido_cliente || "")}` : ""}</small></div></div>
+      <small>${formatarData(mov.criado_em)}${mov.pedido_id ? ` · Pedido #${mov.pedido_id} ${escapar(mov.pedido_cliente || "")}` : ""}${mov.usuario_nome ? ` · Por ${escapar(mov.usuario_nome)}` : " · Registro anterior à auditoria"}</small></div></div>
       <div class="movement-summary ${entrada ? "entry" : "exit"}"><strong>${entrada ? "Entrada" : "Saída"} de ${mov.quantidade}</strong>
       <p>${mov.quantidade === 1 ? "unidade" : "unidades"}</p><small>${mov.estoque_anterior} → ${mov.estoque_posterior}</small></div></div>`;
   }).join("");
@@ -360,7 +381,7 @@ function renderizarHistorico() {
 document.getElementById("maisHistorico").addEventListener("click", () => carregarHistorico());
 document.getElementById("exportarCsv").addEventListener("click", () => {
   if (!historicoCache.length) return;
-  const campos = ["id", "produto", "tipo", "quantidade", "estoque_anterior", "estoque_posterior", "motivo", "pedido_id", "criado_em"];
+  const campos = ["id", "produto", "tipo", "quantidade", "estoque_anterior", "estoque_posterior", "motivo", "pedido_id", "usuario_nome", "criado_em"];
   const campoCsv = valor => {
     let texto = String(valor ?? "");
     // Evita execução de fórmulas ao abrir CSV em planilhas.
@@ -377,4 +398,96 @@ document.getElementById("exportarCsv").addEventListener("click", () => {
 
 buscaProduto.addEventListener("input", renderizarProdutos);
 filtroEstoque.addEventListener("change", renderizarProdutos);
+// Administração de usuários: controles ocultos para funcionário e autorização no servidor.
+async function carregarUsuarios() {
+  if (usuarioAtual?.perfil !== "ADMIN") return;
+  const container = document.getElementById("usuariosLista");
+  try {
+    const usuarios = await obterJson(await apiFetch("/usuarios"));
+    container.innerHTML = usuarios.map(u => `
+      <article class="user-item">
+        <div><strong>${escapar(u.nome)}</strong><small>${escapar(u.email)} · ${u.perfil === "ADMIN" ? "Administrador" : "Funcionário"} · ${u.ativo ? "Ativo" : "Inativo"}</small></div>
+        <div class="user-actions">
+          <button class="button outline" data-action="reset" data-id="${u.id}" type="button">Redefinir senha</button>
+          <button class="button outline" data-action="perfil" data-id="${u.id}" data-perfil="${u.perfil}" type="button" ${u.id === usuarioAtual.id ? "disabled" : ""}>${u.perfil === "ADMIN" ? "Tornar funcionário" : "Tornar administrador"}</button>
+          <button class="button outline" data-action="ativo" data-id="${u.id}" data-ativo="${u.ativo}" type="button" ${u.id === usuarioAtual.id ? "disabled" : ""}>${u.ativo ? "Desativar" : "Reativar"}</button>
+        </div>
+      </article>`).join("") || "Nenhum usuário cadastrado.";
+    container.querySelectorAll("button[data-action]").forEach(btn => btn.addEventListener("click", async () => {
+      const id = Number(btn.dataset.id);
+      if (btn.dataset.action === "reset") {
+        resetUsuarioId = id;
+        document.getElementById("resetUsuarioNome").textContent = usuarios.find(u => u.id === id)?.nome || "Usuário";
+        document.getElementById("resetMensagem").textContent = "";
+        document.getElementById("resetSenha").value = "";
+        document.getElementById("resetSenhaDialog").showModal();
+        return;
+      }
+      const dados = btn.dataset.action === "perfil"
+        ? { perfil: btn.dataset.perfil === "ADMIN" ? "FUNCIONARIO" : "ADMIN" }
+        : { ativo: btn.dataset.ativo !== "true" };
+      if (!confirm("Confirma a alteração de acesso deste usuário?")) return;
+      bloquearBotao(btn, true);
+      try {
+        await obterJson(await apiFetch(`/usuarios/${id}`, { method: "PATCH", body: JSON.stringify(dados) }));
+        await carregarUsuarios();
+      } catch (error) { alert(error.message); bloquearBotao(btn, false); }
+    }));
+  } catch (error) { container.textContent = "Não foi possível carregar usuários: " + error.message; }
+}
+
+document.getElementById("usuarioForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const botao = event.currentTarget.querySelector('button[type="submit"]');
+  const aviso = document.getElementById("usuarioMensagem");
+  const dados = Object.fromEntries(new FormData(event.currentTarget));
+  bloquearBotao(botao, true);
+  try {
+    await obterJson(await apiFetch("/usuarios", { method: "POST", body: JSON.stringify(dados) }));
+    event.currentTarget.reset();
+    aviso.textContent = "Usuário criado. Ele já pode entrar com seu e-mail e senha.";
+    aviso.className = "success";
+    await carregarUsuarios();
+  } catch (error) { aviso.textContent = error.message; aviso.className = "error"; }
+  finally { bloquearBotao(botao, false); }
+});
+
+document.getElementById("alterarSenhaBtn").addEventListener("click", () => {
+  document.getElementById("alterarSenhaForm").reset();
+  document.getElementById("alterarSenhaMensagem").textContent = "";
+  document.getElementById("alterarSenhaDialog").showModal();
+});
+document.getElementById("fecharSenhaDialog").addEventListener("click", () => document.getElementById("alterarSenhaDialog").close());
+document.getElementById("alterarSenhaForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const aviso = document.getElementById("alterarSenhaMensagem");
+  const senha_atual = document.getElementById("senhaAtual").value;
+  const nova_senha = document.getElementById("senhaNova").value;
+  if (nova_senha !== document.getElementById("senhaConfirmacao").value) { aviso.textContent = "As senhas não coincidem."; return; }
+  const botao = event.currentTarget.querySelector('button[type="submit"]');
+  bloquearBotao(botao, true);
+  try {
+    const resultado = await obterJson(await apiFetch("/auth/alterar-senha", { method: "POST", body: JSON.stringify({ senha_atual, nova_senha }) }));
+    document.getElementById("alterarSenhaDialog").close();
+    event.currentTarget.reset();
+    alert(resultado.mensagem);
+  } catch (error) { aviso.textContent = error.message; }
+  finally { bloquearBotao(botao, false); }
+});
+document.getElementById("fecharResetDialog").addEventListener("click", () => document.getElementById("resetSenhaDialog").close());
+document.getElementById("resetSenhaForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const botao = event.currentTarget.querySelector('button[type="submit"]');
+  bloquearBotao(botao, true);
+  try {
+    await obterJson(await apiFetch(`/usuarios/${resetUsuarioId}/redefinir-senha`, { method: "POST",
+      body: JSON.stringify({ nova_senha: document.getElementById("resetSenha").value }) }));
+    document.getElementById("resetSenhaDialog").close();
+    event.currentTarget.reset();
+    if (resetUsuarioId === usuarioAtual?.id) { aplicarPerfil(null); mostrarLogin("Entre novamente com a nova senha."); }
+    else await carregarUsuarios();
+  } catch (error) { document.getElementById("resetMensagem").textContent = error.message; }
+  finally { bloquearBotao(botao, false); }
+});
+
 inicializar();

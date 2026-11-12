@@ -1,28 +1,25 @@
-# Verificações da revisão — 12/11/2026
+# Verificações e limites — autenticação por usuários (12/11/2026)
 
-Este registro diferencia testes efetivamente executados de verificações pendentes, sem presumir resultados.
+## Executados neste ambiente
 
-## Executadas neste ambiente
+- Arquivos Python compilados/analisados sintaticamente via `py_compile` e `ast`.
+- Sintaxe de JavaScript verificada com `node --check frontend/script.js`.
+- Parse do `docker-compose.yaml` e dos manifests Kubernetes com PyYAML (não equivale a validar com Docker ou kubectl).
+- Hash Argon2id criado e verificado com a biblioteca `argon2-cffi` local.
+- Navegador Chromium com respostas da API **simuladas**: login de administrador, cadastro de funcionário, logout, login do funcionário, visualização de permissões e ausência de erros JavaScript.
+- Revisão estática das migrações aditivas e das rotas da API.
 
-- Verificação sintática de `backend/app.py` e dos arquivos de teste Python (`py_compile`).
-- Verificação sintática de `frontend/script.js` (`node --check`).
-- Leitura e validação sintática de `docker-compose.yaml` e dos manifests de Kubernetes pelo parser YAML Python (não substitui `docker compose config`/`kubectl`).
-- Navegador Chromium automatizado com **API simulada**: login, saúde visual, catálogo, métricas, busca, filtro, cadastro com vírgula decimal, modal de edição, pedido de referência, saída vinculada, erro de estoque insuficiente, navegação móvel e ausência de rolagem horizontal nas duas resoluções examinadas. **Nenhum backend real foi utilizado nesse teste.**
-- Integridade de ambos os PDFs corrigidos (abertura e renderização) e do JPEG.
-- Verificação estática de rotas duplicadas e revisão do SQL.
+## Não executados aqui
 
-## Pendentes (exigem ambiente com dependências ou Docker)
+- Testes Pytest do backend: Flask e psycopg2 não estão instalados neste ambiente e a instalação por pip falhou por DNS/rede.
+- PostgreSQL real e Docker Compose: não disponíveis neste ambiente. Por isso a migração de um volume já existente e a execução ponta a ponta **não foram validadas**.
+- Kubernetes e acesso público: não implantados.
 
-- Executar Flask/Pytest reais: `python -m pip install -r backend/requirements.txt` e `python -m pytest backend/tests -q`.
-- Validar `docker compose config`, construir containers, inicializar PostgreSQL com volume existente e volume novo, login, CRUD e persistência após reinício.
-- Testar concorrência real de duas movimentações simultâneas em PostgreSQL (a implementação usa `SELECT ... FOR UPDATE`).
-- Implantar e verificar Kubernetes; a configuração exige armazenamento e secret TLS do cluster.
-- Revisão final de conformidade ABNT/A4 de acordo com a orientação da instituição; PDFs históricos permaneceram no tamanho Letter para preservar a diagramação e só tiveram numeração/sumário corrigidos.
+Uma rotina GitHub Actions foi adicionada para instalar dependências, rodar testes unitários e um teste de integração com banco PostgreSQL isolado e descartável. O resultado dela deve ser confirmado no GitHub; não presuma sucesso somente porque o workflow existe.
 
-## Recomendações antes de apresentar
+## Antes de apresentar
 
-1. No Windows, configure `.env` com segredos próprios sem publicar credenciais.
-2. Rode `docker compose config` e `docker compose up -d --build`.
-3. Confira `http://localhost:3000/health`, login e cada fluxo do roteiro.
-4. Execute `python -m pytest backend/tests -q`.
-5. Não afirme ter realizado testes de integração ou implantação enquanto não houver evidências desses testes.
+1. No PC de casa, siga o `README.md`: `.env`, `docker compose up -d --build` e `python manage.py criar-admin` dentro do container.
+2. Faça login, crie um funcionário, registre movimentações e confirme a coluna `usuario_id` no PostgreSQL.
+3. Execute os testes Pytest e confira o status do GitHub Actions.
+4. Não apague volumes existentes; dados do PostgreSQL não vêm com o `git clone`.

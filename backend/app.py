@@ -1,5 +1,6 @@
 """API de estoque e rastreabilidade da Márcia Salgados."""
 import hmac
+import re
 import os
 import secrets
 import time
@@ -8,9 +9,11 @@ from decimal import Decimal, InvalidOperation
 from functools import wraps
 
 import psycopg2
-from flask import Flask, jsonify, request, session
+from flask import Flask, g, jsonify, request, session
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
+from argon2 import PasswordHasher, exceptions as argon2_errors
+from argon2.low_level import Type
 
 app = Flask(__name__)
 app.config.update(
@@ -21,7 +24,11 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
     MAX_CONTENT_LENGTH=16 * 1024,
 )
-ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "")
+PASSWORD_HASHER = PasswordHasher(time_cost=2, memory_cost=19456,
+                                 parallelism=1, hash_len=32, salt_len=16,
+                                 type=Type.ID)
+PERFIS = ("ADMIN", "FUNCIONARIO")
+EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 MAX_INT = 2_147_483_647
 MAX_PRECO = Decimal("99999999.99")
 
@@ -102,8 +109,7 @@ def validar_produto(data, *, edicao=False):
 
 
 def preparar_banco():
-    # A mesma definição das tabelas está em database/init.sql, executada na primeira
-    # criação do volume. CREATE IF NOT EXISTS mantém compatibilidade com volumes antigos.
+    """Migração idempotente: mantém produtos, pedidos e movimentações existentes."""
     sql = """
         CREATE TABLE IF NOT EXISTS produtos (
           id SERIAL PRIMARY KEY,
@@ -130,8 +136,36 @@ def preparar_banco():
           pedido_id INTEGER,
           criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+        ALTER TABLE produtos ADD COLUMN IF NOT EXISTS estoque_minimo INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE movimentacoes ADD COLUMN IF NOT EXISTS pedido_id INTEGER;
         CREATE INDEX IF NOT EXISTS idx_movimentacoes_criado_em
           ON movimentacoes (criado_em DESC, id DESC);
+        CREATE TABLE IF NOT EXISTS usuarios (
+          id SERIAL PRIMARY KEY,
+          nome VARCHAR(100) NOT NULL,
+          email VARCHAR(254) NOT NULL,
+          senha_hash TEXT NOT NULL,
+          perfil VARCHAR(11) NOT NULL CHECK (perfil IN ('ADMIN','FUNCIONARIO')),
+          ativo BOOLEAN NOT NULL DEFAULT TRUE,
+          versao_sessao INTEGER NOT NULL DEFAULT 1,
+          tentativas_falhas INTEGER NOT NULL DEFAULT 0,
+          bloqueado_ate TIMESTAMPTZ,
+          criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_email_ci ON usuarios (LOWER(email));
+        ALTER TABLE movimentacoes ADD COLUMN IF NOT EXISTS usuario_id INTEGER;
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'fk_movimentacoes_usuario'
+              AND conrelid = 'movimentacoes'::regclass
+          ) THEN
+            ALTER TABLE movimentacoes ADD CONSTRAINT fk_movimentacoes_usuario
+              FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL;
+          END IF;
+        END $$;
     """
     for tentativa in range(10):
         try:
@@ -145,18 +179,97 @@ def preparar_banco():
             time.sleep(2)
 
 
-def login_configurado():
-    return bool(ADMIN_PASSWORD and app.config.get("SECRET_KEY"))
+def validar_configuracao():
+    chave = app.config.get("SECRET_KEY")
+    senha_db = DB_CONFIG["password"]
+    if not isinstance(chave, str) or len(chave) < 32 or chave.startswith("SUBSTITUA_"):
+        raise RuntimeError("Defina uma FLASK_SECRET_KEY aleatória com pelo menos 32 caracteres no .env.")
+    if not senha_db or senha_db.startswith("SUBSTITUA_"):
+        raise RuntimeError("Defina POSTGRES_PASSWORD com uma senha própria no .env.")
+
+
+def validar_senha(senha):
+    if not isinstance(senha, str) or not 12 <= len(senha) <= 128:
+        return "A senha deve ter de 12 a 128 caracteres."
+    return None
+
+
+def validar_usuario(data):
+    if not isinstance(data, dict):
+        return "Dados inválidos."
+    nome, email, perfil = data.get("nome"), data.get("email"), data.get("perfil")
+    if not isinstance(nome, str) or not 1 <= len(nome.strip()) <= 100:
+        return "Informe um nome de até 100 caracteres."
+    if not isinstance(email, str) or len(email.strip()) > 254 or not EMAIL_PATTERN.fullmatch(email.strip()):
+        return "Informe um e-mail válido."
+    if perfil not in PERFIS:
+        return "Perfil inválido."
+    return validar_senha(data.get("senha"))
+
+
+def hash_senha(senha):
+    return PASSWORD_HASHER.hash(senha)
+
+
+def conferir_senha(hash_guardado, senha):
+    try:
+        return PASSWORD_HASHER.verify(hash_guardado, senha)
+    except (argon2_errors.VerifyMismatchError, argon2_errors.VerificationError,
+            argon2_errors.InvalidHashError, TypeError, ValueError):
+        return False
+
+
+def consulta_usuario(id_usuario):
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""SELECT id, nome, email, perfil, ativo, versao_sessao
+                           FROM usuarios WHERE id=%s""", (id_usuario,))
+            return cur.fetchone()
+    finally:
+        if conn:
+            get_pool().putconn(conn)
+
+
+def usuario_da_sessao():
+    identificador = session.get("usuario_id")
+    versao = session.get("versao_sessao")
+    if type(identificador) is not int or type(versao) is not int:
+        return None
+    usuario = consulta_usuario(identificador)
+    if not usuario or not usuario["ativo"] or usuario["versao_sessao"] != versao:
+        return None
+    return usuario
+
+
+def usuario_publico(usuario):
+    return {campo: usuario[campo] for campo in ("id", "nome", "email", "perfil")}
+
+
+def exige_admin(func):
+    @wraps(func)
+    def protegido(*args, **kwargs):
+        if g.usuario["perfil"] != "ADMIN":
+            return json_error("Apenas administradores podem realizar essa operação.", 403)
+        return func(*args, **kwargs)
+    return protegido
 
 
 @app.before_request
 def proteger_api():
     if request.path in ("/", "/health", "/auth/status", "/auth/login"):
         return None
-    if not login_configurado():
-        return json_error("Autenticação não configurada no servidor.", 503)
-    if not session.get("autenticado"):
+    if not app.config.get("SECRET_KEY"):
+        return json_error("Chave de sessão não configurada no servidor.", 503)
+    try:
+        usuario = usuario_da_sessao()
+    except psycopg2.Error:
+        return json_error("Não foi possível verificar sua sessão no banco.", 503)
+    if usuario is None:
+        session.clear()
         return json_error("Faça login para continuar.", 401)
+    g.usuario = usuario
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
         enviado = request.headers.get("X-CSRF-Token", "")
         esperado = session.get("csrf", "")
@@ -172,33 +285,235 @@ def home():
 
 @app.get("/auth/status")
 def auth_status():
-    autenticado = bool(session.get("autenticado") and login_configurado())
-    return jsonify({
-        "configurado": login_configurado(),
-        "autenticado": autenticado,
-        "csrf": session.get("csrf") if autenticado else None,
-    })
+    if not app.config.get("SECRET_KEY"):
+        return jsonify({"configurado": False, "autenticado": False, "primeiro_acesso": False})
+    try:
+        usuario = usuario_da_sessao()
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT EXISTS (SELECT 1 FROM usuarios)")
+                existem_usuarios = cur.fetchone()[0]
+        finally:
+            get_pool().putconn(conn)
+    except psycopg2.Error:
+        return json_error("Banco de dados indisponível.", 503)
+    return jsonify({"configurado": True, "autenticado": bool(usuario),
+                    "primeiro_acesso": not existem_usuarios,
+                    "usuario": usuario_publico(usuario) if usuario else None,
+                    "csrf": session.get("csrf") if usuario else None})
 
 
 @app.post("/auth/login")
 def auth_login():
-    if not login_configurado():
-        return json_error("Configure APP_ADMIN_PASSWORD e FLASK_SECRET_KEY no servidor.", 503)
+    if not app.config.get("SECRET_KEY"):
+        return json_error("Configure FLASK_SECRET_KEY no servidor.", 503)
     data = request.get_json(silent=True)
-    senha = data.get("senha") if isinstance(data, dict) else None
-    if not isinstance(senha, str) or not hmac.compare_digest(senha, ADMIN_PASSWORD):
-        return json_error("Senha incorreta.", 401)
+    email = data.get("email", "") if isinstance(data, dict) else ""
+    senha = data.get("senha", "") if isinstance(data, dict) else ""
+    if not isinstance(email, str) or not isinstance(senha, str) or len(email) > 254 or len(senha) > 128:
+        return json_error("E-mail ou senha incorretos.", 401)
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""SELECT id, nome, email, senha_hash, perfil, ativo,
+                                  versao_sessao, tentativas_falhas, bloqueado_ate,
+                                  (bloqueado_ate IS NOT NULL AND bloqueado_ate > NOW()) AS bloqueado
+                           FROM usuarios WHERE LOWER(email)=LOWER(%s) FOR UPDATE""", (email.strip(),))
+            usuario = cur.fetchone()
+            # Mensagem uniforme; a limitação de tentativas é vinculada à conta.
+            if not usuario or not usuario["ativo"] or usuario["bloqueado"]:
+                conn.rollback()
+                return json_error("E-mail ou senha incorretos ou acesso temporariamente bloqueado.", 401)
+            if not conferir_senha(usuario["senha_hash"], senha):
+                cur.execute("""UPDATE usuarios SET tentativas_falhas=tentativas_falhas+1,
+                           bloqueado_ate=CASE WHEN tentativas_falhas+1 >= 5
+                             THEN NOW() + INTERVAL '15 minutes' ELSE bloqueado_ate END
+                           WHERE id=%s""", (usuario["id"],))
+                conn.commit()
+                return json_error("E-mail ou senha incorretos ou acesso temporariamente bloqueado.", 401)
+            cur.execute("""UPDATE usuarios SET tentativas_falhas=0, bloqueado_ate=NULL
+                           WHERE id=%s""", (usuario["id"],))
+        conn.commit()
+    except psycopg2.Error:
+        if conn:
+            conn.rollback()
+        return json_error("Não foi possível autenticar no momento.", 503)
+    finally:
+        if conn:
+            get_pool().putconn(conn)
     session.clear()
     session.permanent = True
-    session["autenticado"] = True
+    session["usuario_id"] = usuario["id"]
+    session["versao_sessao"] = usuario["versao_sessao"]
     session["csrf"] = secrets.token_urlsafe(32)
-    return jsonify({"mensagem": "Sessão iniciada.", "csrf": session["csrf"]})
+    return jsonify({"mensagem": "Sessão iniciada.", "csrf": session["csrf"],
+                    "usuario": usuario_publico(usuario)})
 
 
 @app.post("/auth/logout")
 def auth_logout():
     session.clear()
     return jsonify({"mensagem": "Sessão encerrada."})
+
+
+@app.post("/auth/alterar-senha")
+def alterar_senha():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return json_error("Dados inválidos.")
+    erro = validar_senha(data.get("nova_senha"))
+    if erro:
+        return json_error(erro)
+    senha_atual = data.get("senha_atual")
+    if not isinstance(senha_atual, str):
+        return json_error("Senha atual incorreta.", 400)
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT senha_hash, versao_sessao FROM usuarios WHERE id=%s FOR UPDATE", (g.usuario["id"],))
+            registrado = cur.fetchone()
+            if not registrado or not conferir_senha(registrado["senha_hash"], senha_atual):
+                conn.rollback()
+                return json_error("Senha atual incorreta.", 400)
+            if conferir_senha(registrado["senha_hash"], data["nova_senha"]):
+                conn.rollback()
+                return json_error("A nova senha deve ser diferente da anterior.")
+            versao = registrado["versao_sessao"] + 1
+            cur.execute("""UPDATE usuarios SET senha_hash=%s, versao_sessao=%s,
+                           tentativas_falhas=0, bloqueado_ate=NULL, atualizado_em=NOW()
+                           WHERE id=%s""", (hash_senha(data["nova_senha"]), versao, g.usuario["id"]))
+        conn.commit()
+        # Mantém a sessão atual; invalida todas as outras.
+        session["versao_sessao"] = versao
+        return jsonify({"mensagem": "Senha alterada. As outras sessões foram encerradas."})
+    except psycopg2.Error:
+        if conn:
+            conn.rollback()
+        return json_error("Não foi possível alterar a senha.", 503)
+    finally:
+        if conn:
+            get_pool().putconn(conn)
+
+
+@app.get("/usuarios")
+@exige_admin
+def listar_usuarios():
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""SELECT id, nome, email, perfil, ativo, criado_em
+                           FROM usuarios ORDER BY id ASC""")
+            return jsonify(cur.fetchall())
+    except psycopg2.Error:
+        return json_error("Não foi possível consultar os usuários.", 503)
+    finally:
+        if conn:
+            get_pool().putconn(conn)
+
+
+@app.post("/usuarios")
+@exige_admin
+def criar_usuario():
+    data = request.get_json(silent=True)
+    erro = validar_usuario(data)
+    if erro:
+        return json_error(erro)
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""INSERT INTO usuarios (nome, email, senha_hash, perfil)
+                           VALUES (%s,%s,%s,%s)
+                           RETURNING id, nome, email, perfil, ativo, criado_em""",
+                        (data["nome"].strip(), data["email"].strip().lower(),
+                         hash_senha(data["senha"]), data["perfil"]))
+            usuario = cur.fetchone()
+        conn.commit()
+        return jsonify({"mensagem": "Usuário cadastrado.", "usuario": usuario}), 201
+    except psycopg2.IntegrityError:
+        if conn:
+            conn.rollback()
+        return json_error("Este e-mail já está cadastrado.", 409)
+    except psycopg2.Error:
+        if conn:
+            conn.rollback()
+        return json_error("Não foi possível cadastrar o usuário.", 503)
+    finally:
+        if conn:
+            get_pool().putconn(conn)
+
+
+@app.patch("/usuarios/<int:usuario_id>")
+@exige_admin
+def editar_usuario(usuario_id):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not data or set(data) - {"perfil", "ativo"}:
+        return json_error("Informe perfil ou status ativo válido.")
+    perfil = data.get("perfil")
+    ativo = data.get("ativo")
+    if perfil is not None and perfil not in PERFIS:
+        return json_error("Perfil inválido.")
+    if ativo is not None and type(ativo) is not bool:
+        return json_error("Status ativo deve ser verdadeiro ou falso.")
+    if usuario_id == g.usuario["id"] and (perfil == "FUNCIONARIO" or ativo is False):
+        return json_error("Você não pode desativar ou retirar seu próprio acesso administrativo.", 409)
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""UPDATE usuarios SET perfil=COALESCE(%s,perfil),
+                           ativo=COALESCE(%s,ativo), versao_sessao=versao_sessao+1,
+                           atualizado_em=NOW() WHERE id=%s
+                           RETURNING id, nome, email, perfil, ativo""", (perfil, ativo, usuario_id))
+            usuario = cur.fetchone()
+        if not usuario:
+            conn.rollback()
+            return json_error("Usuário não encontrado.", 404)
+        conn.commit()
+        return jsonify({"usuario": usuario})
+    except psycopg2.Error:
+        if conn:
+            conn.rollback()
+        return json_error("Não foi possível atualizar o usuário.", 503)
+    finally:
+        if conn:
+            get_pool().putconn(conn)
+
+
+@app.post("/usuarios/<int:usuario_id>/redefinir-senha")
+@exige_admin
+def redefinir_senha(usuario_id):
+    data = request.get_json(silent=True)
+    erro = validar_senha(data.get("nova_senha") if isinstance(data, dict) else None)
+    if erro:
+        return json_error(erro)
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""UPDATE usuarios SET senha_hash=%s, versao_sessao=versao_sessao+1,
+                           tentativas_falhas=0, bloqueado_ate=NULL, atualizado_em=NOW()
+                           WHERE id=%s RETURNING id""", (hash_senha(data["nova_senha"]), usuario_id))
+            usuario = cur.fetchone()
+        if not usuario:
+            conn.rollback()
+            return json_error("Usuário não encontrado.", 404)
+        conn.commit()
+        # Inclusive a própria sessão é invalidada se redefinir a própria senha.
+        if usuario_id == g.usuario["id"]:
+            session.clear()
+        return jsonify({"mensagem": "Senha redefinida. Sessões anteriores foram invalidadas."})
+    except psycopg2.Error:
+        if conn:
+            conn.rollback()
+        return json_error("Não foi possível redefinir a senha.", 503)
+    finally:
+        if conn:
+            get_pool().putconn(conn)
 
 
 @app.get("/health")
@@ -236,6 +551,7 @@ def listar_produtos():
 
 
 @app.post("/produtos")
+@exige_admin
 def cadastrar_produto():
     data = request.get_json(silent=True)
     erro = validar_produto(data)
@@ -263,6 +579,7 @@ def cadastrar_produto():
 
 
 @app.put("/produtos/<int:produto_id>")
+@exige_admin
 def editar_produto(produto_id):
     data = request.get_json(silent=True)
     erro = validar_produto(data, edicao=True)
@@ -377,9 +694,9 @@ def movimentar_estoque():
                 return json_error("O estoque ultrapassaria o limite permitido.")
             cur.execute("UPDATE produtos SET estoque=%s WHERE id=%s", (novo, produto_id))
             cur.execute("""INSERT INTO movimentacoes
-                           (produto_id, tipo, quantidade, estoque_anterior, estoque_posterior, motivo, pedido_id)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                        (produto_id, tipo, quantidade, anterior, novo, motivo.strip() or None, pedido_id))
+                           (produto_id, tipo, quantidade, estoque_anterior, estoque_posterior, motivo, pedido_id, usuario_id)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (produto_id, tipo, quantidade, anterior, novo, motivo.strip() or None, pedido_id, g.usuario["id"]))
         conn.commit()
         return jsonify({"mensagem": "Movimentação registrada com sucesso.",
                         "estoque_anterior": anterior, "estoque_atual": novo,
@@ -407,9 +724,11 @@ def listar_movimentacoes():
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""SELECT m.id, m.tipo, m.quantidade, m.estoque_anterior,
                                 m.estoque_posterior, m.motivo, m.pedido_id, m.criado_em,
-                                p.nome AS produto, ped.cliente AS pedido_cliente
+                                p.nome AS produto, ped.cliente AS pedido_cliente,
+                                u.nome AS usuario_nome
                            FROM movimentacoes m JOIN produtos p ON p.id=m.produto_id
                            LEFT JOIN pedidos ped ON ped.id=m.pedido_id
+                           LEFT JOIN usuarios u ON u.id=m.usuario_id
                            ORDER BY m.criado_em DESC, m.id DESC LIMIT %s OFFSET %s""", (limite, offset))
             return jsonify(cur.fetchall())
     except psycopg2.Error:
@@ -430,7 +749,6 @@ def metodo_nao_permitido(_):
 
 
 if __name__ == "__main__":
-    if not login_configurado():
-        raise RuntimeError("Configure APP_ADMIN_PASSWORD e FLASK_SECRET_KEY antes de executar a API.")
+    validar_configuracao()
     preparar_banco()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "3000")), debug=False)

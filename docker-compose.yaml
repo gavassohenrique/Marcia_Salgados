@@ -24,7 +24,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Crie .env com POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-appdb}
-      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:?Crie .env com APP_ADMIN_PASSWORD}
       FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?Crie .env com FLASK_SECRET_KEY}
       COOKIE_SECURE: "false"  # true quando usado com HTTPS
     ports:
