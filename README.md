@@ -64,6 +64,27 @@ O arquivo `database/init.sql` é aplicado **somente ao criar um volume vazio**. 
 
 **Atenção ao banco anterior:** se um volume antigo foi criado com a senha `password`, mudar `POSTGRES_PASSWORD` no `.env` **não altera a senha armazenada no PostgreSQL**. Para preservar dados, entre no banco localmente com `docker compose exec postgres psql -U user -d appdb`, execute `ALTER ROLE "user" WITH PASSWORD 'SUA_NOVA_SENHA_FORTE';`, saia com `\q` e reinicie o backend. Substitua os valores de exemplo pelos da sua instalação e não grave a senha no histórico de comandos. Nunca apague o volume para contornar esse problema.
 
+## Problemas de login: `Forbidden` ou resposta inválida
+
+O painel **não é uma página estática independente**: ele depende da API Flask, acessível via proxy Nginx em `/api/`.
+
+1. Abra o endereço **http://localhost:8080** depois de executar `docker compose up -d --build`. Não use "Open with Live Server", `file://`, GitHub Pages ou visualização estática do VS Code para realizar o login.
+2. No navegador, confira **http://localhost:8080/api/health**. A resposta esperada, quando o backend e banco estiverem saudáveis, é JSON como `{"status":"ok","banco":"conectado"}`.
+3. No PowerShell, na pasta do projeto, execute os comandos a seguir e confira o status e os logs:
+
+```powershell
+docker compose config
+docker compose ps
+docker compose logs --tail=100 frontend
+docker compose logs --tail=100 backend
+curl.exe -i http://localhost:8080/api/health
+curl.exe -i http://localhost:8080/api/auth/status
+```
+
+O caminho `/api/auth/status` deve retornar JSON com `configurado` e `autenticado`; não precisa de senha. O login é `POST /api/auth/login`, não uma página HTML. Se a resposta começar com `Forbidden` e não for JSON, o bloqueio pode estar no endereço/hospedagem ou no proxy, **não é possível concluir que a senha esteja incorreta**. Se os testes acima retornarem JSON válido, verifique a aba Rede (Network) do navegador para a requisição `POST /api/auth/login` e confira apenas o status HTTP e o tipo da resposta; **não compartilhe sua senha nem tokens de sessão**.
+
+Se a porta 8080 já estiver em uso por outra aplicação, encerre esse serviço antes de iniciar o Compose ou ajuste a publicação da porta no `docker-compose.yaml`.
+
 ## Testes
 
 Para instalar e executar os testes Python em um ambiente com acesso às dependências:

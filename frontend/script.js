@@ -61,8 +61,23 @@ async function apiFetch(caminho, options = {}) {
 }
 
 async function obterJson(response) {
-  const resultado = await response.json();
-  if (!response.ok) throw new Error(resultado.erro || "Não foi possível concluir a solicitação.");
+  // Um proxy, Live Server ou hospedagem estática pode devolver HTML/texto
+  // (por exemplo, "Forbidden") em vez da resposta JSON da API Flask.
+  // Mostre um diagnóstico útil sem expor a resposta bruta ao usuário.
+  const corpo = await response.text();
+  let resultado;
+  try {
+    resultado = JSON.parse(corpo);
+  } catch {
+    const status = `HTTP ${response.status}`;
+    const causa = response.status === 403
+      ? "O acesso à API foi bloqueado pelo servidor ou proxy"
+      : "A API retornou uma resposta inválida";
+    throw new Error(`${causa} (${status}). Abra o painel pelo Docker em http://localhost:8080 (não pelo Live Server) e confira a rota /api/ e os containers.`);
+  }
+  if (!response.ok) {
+    throw new Error(resultado?.erro || resultado?.message || `Não foi possível concluir a solicitação (HTTP ${response.status}).`);
+  }
   return resultado;
 }
 
@@ -99,8 +114,8 @@ async function inicializar() {
     } else {
       mostrarLogin();
     }
-  } catch {
-    mostrarLogin("Não foi possível consultar o servidor. Verifique os containers.");
+  } catch (error) {
+    mostrarLogin(error.message || "Não foi possível consultar o servidor. Verifique os containers.");
   }
 }
 
