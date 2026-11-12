@@ -1,0 +1,9 @@
+{
+  "name": "msalgados",
+  "version": "1.0.0",
+  "description": "Sistema Marcia Salgados",
+  "private": true,
+  "scripts": {
+    "test": "npm --prefix backend test"
+  }
+}

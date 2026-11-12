@@ -1,1 +1,0 @@
-Arquivo temporário para inicializar o repositório antes de restaurar os arquivos originais do projeto.

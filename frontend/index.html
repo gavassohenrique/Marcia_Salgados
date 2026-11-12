@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Sistema de gestão de produtos e controle de estoque da Márcia Salgados.">
+  <title>Márcia Salgados | Controle de Estoque</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="header">
+  <a class="brand" href="#inicio" aria-label="Ir para o início">
+    <span class="brand-mark" aria-hidden="true">M</span>
+    <span class="brand-copy">
+      <strong>Márcia</strong>
+      <small>Salgados</small>
+    </span>
+  </a>
+  <nav aria-label="Navegação principal">
+    <a href="#inicio">Visão geral</a>
+    <a href="#produtos">Produtos</a>
+    <a href="#cadastro">Novo produto</a>
+    <a href="#historico">Movimentações</a>
+  </nav>
+  <div class="system-status" aria-label="Status do sistema">
+    <span aria-hidden="true"></span>
+    Sistema ativo
+  </div>
+</header>
+<main>
+<section id="inicio" class="hero">
+  <div class="hero-content">
+    <span class="eyebrow eyebrow-light">CONTROLE DE ESTOQUE</span>
+    <h1>Organização para produzir <span>sem desperdício.</span></h1>
+    <p>Cadastre produtos, acompanhe quantidades e registre cada entrada ou saída em um só lugar.</p>
+    <div class="buttons">
+      <a href="#cadastro" class="button primary">Cadastrar produto <span aria-hidden="true">→</span></a>
+      <a href="#produtos" class="button secondary">Consultar estoque</a>
+    </div>
+  </div>
+  <div class="hero-image" role="img" aria-label="Coxinhas e salgados frescos servidos em um prato"></div>
+</section>
+<section class="dashboard" aria-labelledby="resumo-title">
+  <div class="section-heading horizontal">
+    <div>
+      <span class="eyebrow">VISÃO GERAL</span>
+      <h2 id="resumo-title">Resumo do estoque</h2>
+    </div>
+    <p>Dados atualizados com base nos produtos cadastrados.</p>
+  </div>
+  <div class="stats">
+    <article class="stat">
+      <span class="stat-icon" aria-hidden="true">◆</span>
+      <div><span>Produtos cadastrados</span><strong id="totalProdutos">0</strong><small>itens diferentes</small></div>
+    </article>
+    <article class="stat">
+      <span class="stat-icon" aria-hidden="true">↕</span>
+      <div><span>Estoque total</span><strong id="estoqueTotal">0</strong><small>unidades disponíveis</small></div>
+    </article>
+    <article class="stat warning">
+      <span class="stat-icon" aria-hidden="true">!</span>
+      <div><span>Estoque baixo</span><strong id="estoqueBaixo">0</strong><small>produtos exigem atenção</small></div>
+    </article>
+  </div>
+</section>
+<section id="produtos" class="section">
+  <div class="section-heading horizontal">
+    <div>
+      <span class="eyebrow">CATÁLOGO</span>
+      <h2>Produtos cadastrados</h2>
+      <p>Consulte os dados e registre entradas ou saídas.</p>
+    </div>
+    <a href="#cadastro" class="button outline">+ Adicionar produto</a>
+  </div>
+  <div class="catalog-tools" aria-label="Filtros do catálogo">
+    <label class="search-field" for="buscaProduto">Buscar produto
+      <input id="buscaProduto" type="search" placeholder="Digite o nome do produto..." autocomplete="off">
+    </label>
+    <label class="filter-field" for="filtroEstoque">Exibir
+      <select id="filtroEstoque">
+        <option value="todos">Todos os produtos</option>
+        <option value="baixo">Somente estoque baixo</option>
+        <option value="disponivel">Somente disponíveis</option>
+      </select>
+    </label>
+  </div>
+    <div id="status" class="status" role="status" aria-live="polite">Carregando produtos...</div>
+  <div id="lista" class="products"></div>
+</section>
+<section id="cadastro" class="section form-section">
+  <div class="form-intro">
+    <span class="eyebrow eyebrow-light">NOVO PRODUTO</span>
+    <h2>Cadastre em poucos passos.</h2>
+    <p>Preencha os dados ao lado. Depois do cadastro, o produto aparecerá automaticamente no catálogo e no resumo.</p>
+    <ol class="form-steps">
+      <li><span>1</span> Identifique o produto</li>
+      <li><span>2</span> Informe preço e estoque</li>
+      <li><span>3</span> Confirme o cadastro</li>
+    </ol>
+  </div>
+  <form id="produtoForm" class="product-form">
+    <div class="form-heading">
+      <div>
+        <span class="eyebrow">DADOS DO PRODUTO</span>
+        <h3>Informações principais</h3>
+      </div>
+      <span class="required-note">* Campos obrigatórios</span>
+    </div>
+    <div class="form-grid">
+      <div class="field full-width">
+        <label for="nome" title="Informe um nome claro para localizar o produto no catálogo.">Nome do produto * <span class="tooltip" tabindex="0" aria-label="Ajuda para nome" data-tooltip="Use um nome claro e específico, por exemplo: Coxinha de frango.">?</span></label>
+        <input id="nome" name="nome" placeholder="Ex.: Coxinha de frango" maxlength="100" autocomplete="off" required>
+        <small>Use um nome fácil de localizar no estoque.</small>
+      </div>
+      <div class="field">
+        <label for="preco" title="Valor de venda de uma unidade.">Preço unitário * <span class="tooltip" tabindex="0" aria-label="Ajuda para preço" data-tooltip="Informe o valor de uma unidade em reais. Use ponto ou vírgula como separador decimal.">?</span></label>
+        <div class="input-prefix"><span>R$</span><input id="preco" name="preco" type="number" min="0.01" step="0.01" placeholder="5,00" required></div>
+      </div>
+      <div class="field">
+        <label for="estoque" title="Quantidade disponível no momento do cadastro.">Estoque inicial <span class="tooltip" tabindex="0" aria-label="Ajuda para estoque inicial" data-tooltip="Quantidade de unidades disponíveis ao cadastrar este produto.">?</span></label>
+        <input id="estoque" name="estoque" type="number" min="0" value="0">
+      </div>
+      <div class="field full-width">
+        <label for="estoque_minimo" title="Limite que gera alerta de estoque baixo.">Estoque mínimo <span class="tooltip" tabindex="0" aria-label="Ajuda para estoque mínimo" data-tooltip="Quando o saldo ficar igual ou abaixo deste número, o produto será sinalizado como estoque baixo.">?</span></label>
+        <input id="estoque_minimo" name="estoque_minimo" type="number" min="0" value="5">
+        <small>O sistema destacará o produto quando atingir essa quantidade.</small>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Cadastrar produto <span aria-hidden="true">→</span></button>
+      <p id="mensagem" aria-live="polite"></p>
+    </div>
+  </form>
+</section>
+<section id="historico" class="section">
+  <div class="section-heading">
+    <span class="eyebrow">RASTREABILIDADE</span>
+    <h2>Histórico de movimentações</h2>
+    <p>Acompanhe as últimas entradas e saídas registradas.</p>
+  </div>
+  <div id="historicoLista" class="history" aria-live="polite">Carregando histórico...</div>
+</section>
+</main>
+<footer>
+  <div class="footer-brand"><span class="brand-mark small" aria-hidden="true">M</span><strong>Márcia Salgados</strong></div>
+  <span>Sistema de Gestão e Controle de Estoque</span>
+</footer>
+<script src="script.js"></script>
+</body>
+</html>

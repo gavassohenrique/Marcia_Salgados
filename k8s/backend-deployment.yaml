@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: backend
+
+spec:
+
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: backend
+
+  template:
+
+    metadata:
+      labels:
+        app: backend
+
+    spec:
+
+      containers:
+
+        - name: backend
+
+          image: msalgados-backend:1.0
+
+          imagePullPolicy: IfNotPresent
+
+          ports:
+
+            - containerPort: 3000
+
+          env:
+
+            - name: PORT
+              value: "3000"
+
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: DB_HOST
+
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: POSTGRES_USER
+
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: POSTGRES_PASSWORD
+
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: POSTGRES_DB
+
+            - name: DB_PORT
+              value: "5432"
+
+          readinessProbe:
+
+            httpGet:
+              path: /health
+              port: 3000
+
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          livenessProbe:
+
+            httpGet:
+              path: /
+              port: 3000
+
+            initialDelaySeconds: 20
+            periodSeconds: 10

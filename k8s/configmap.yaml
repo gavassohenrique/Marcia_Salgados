@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+
+metadata:
+  name: app-config
+
+data:
+
+  DB_HOST: postgres-service
+
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS produtos (
+        id SERIAL PRIMARY KEY,
+        nome VARCHAR(100) NOT NULL,
+        preco NUMERIC(10,2) NOT NULL CHECK (preco >= 0),
+        estoque INTEGER NOT NULL DEFAULT 0,
+        estoque_minimo INTEGER NOT NULL DEFAULT 5,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS pedidos (
+        id SERIAL PRIMARY KEY,
+        cliente VARCHAR(150) NOT NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'FINALIZADO',
+        total NUMERIC(10,2) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS pedido_itens (
+        id SERIAL PRIMARY KEY,
+        pedido_id INTEGER NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
+        produto_id INTEGER NOT NULL REFERENCES produtos(id),
+        quantidade INTEGER NOT NULL,
+        preco_unitario NUMERIC(10,2) NOT NULL,
+        subtotal NUMERIC(10,2) NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS movimentacoes_estoque (
+        id SERIAL PRIMARY KEY,
+        produto_id INTEGER NOT NULL REFERENCES produtos(id),
+        tipo VARCHAR(20) NOT NULL,
+        quantidade INTEGER NOT NULL,
+        estoque_anterior INTEGER NOT NULL,
+        estoque_posterior INTEGER NOT NULL,
+        motivo VARCHAR(255),
+        pedido_id INTEGER REFERENCES pedidos(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT INTO produtos
+    (nome, preco, estoque, estoque_minimo)
+    SELECT 'Coxinha', 5.00, 20, 5
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM produtos
+        WHERE nome = 'Coxinha'
+    );
+
+    INSERT INTO produtos
+    (nome, preco, estoque, estoque_minimo)
+    SELECT 'Hamburgão', 8.00, 15, 5
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM produtos
+        WHERE nome = 'Hamburgão'
+    );
