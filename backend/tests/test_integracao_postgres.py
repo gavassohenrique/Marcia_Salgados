@@ -26,46 +26,46 @@ def test_flask_integrado_ao_postgresql_real():
                         (modulo.hash_senha("senha-admin-exclusiva-de-ci"),))
 
     modulo.app.config["TESTING"] = True
-    with modulo.app.test_client() as admin:
-        status = admin.get('/auth/status')
-        assert status.status_code == 200
-        assert status.json['primeiro_acesso'] is False
-        login = admin.post('/auth/login', json={"email": "admin@ci.example", "senha": "senha-admin-exclusiva-de-ci"})
-        assert login.status_code == 200
-        headers = {'X-CSRF-Token': login.json['csrf']}
+    admin = modulo.app.test_client()
+    status = admin.get('/auth/status')
+    assert status.status_code == 200
+    assert status.json['primeiro_acesso'] is False
+    login = admin.post('/auth/login', json={"email": "admin@ci.example", "senha": "senha-admin-exclusiva-de-ci"})
+    assert login.status_code == 200
+    headers = {'X-CSRF-Token': login.json['csrf']}
 
-        novo_usuario = admin.post('/usuarios', headers=headers, json={
-            'nome': 'Funcionária CI', 'email': 'func@ci.example',
-            'senha': 'senha-funcionaria-de-ci', 'perfil': 'FUNCIONARIO'
-        })
-        assert novo_usuario.status_code == 201
-        func_id = novo_usuario.json['usuario']['id']
+    novo_usuario = admin.post('/usuarios', headers=headers, json={
+        'nome': 'Funcionária CI', 'email': 'func@ci.example',
+        'senha': 'senha-funcionaria-de-ci', 'perfil': 'FUNCIONARIO'
+    })
+    assert novo_usuario.status_code == 201
+    func_id = novo_usuario.json['usuario']['id']
 
-        novo_produto = admin.post('/produtos', headers=headers, json={
-            'nome': 'Coxinha de teste CI', 'preco': '5.50', 'estoque': 12, 'estoque_minimo': 3
-        })
-        assert novo_produto.status_code == 201
-        produto_id = novo_produto.json['produto']['id']
+    novo_produto = admin.post('/produtos', headers=headers, json={
+        'nome': 'Coxinha de teste CI', 'preco': '5.50', 'estoque': 12, 'estoque_minimo': 3
+    })
+    assert novo_produto.status_code == 201
+    produto_id = novo_produto.json['produto']['id']
 
-        with modulo.app.test_client() as func:
-            login_func = func.post('/auth/login', json={'email':'func@ci.example','senha':'senha-funcionaria-de-ci'})
-            assert login_func.status_code == 200
-            h_func = {'X-CSRF-Token': login_func.json['csrf']}
-            assert func.post('/produtos', headers=h_func, json={}).status_code == 403
-            mov = func.post('/estoque/movimentacao', headers=h_func, json={
-                'produto_id': produto_id, 'tipo': 'SAIDA', 'quantidade': 2,
-                'motivo': 'Entrega CI'
-            })
-            assert mov.status_code == 201
-            assert mov.json['estoque_atual'] == 10
-            historico = func.get('/movimentacoes')
-            assert historico.status_code == 200
-            registro = next(m for m in historico.json if m['produto'] == 'Coxinha de teste CI')
-            assert registro['usuario_nome'] == 'Funcionária CI'
+    func = modulo.app.test_client()
+    login_func = func.post('/auth/login', json={'email':'func@ci.example','senha':'senha-funcionaria-de-ci'})
+    assert login_func.status_code == 200
+    h_func = {'X-CSRF-Token': login_func.json['csrf']}
+    assert func.post('/produtos', headers=h_func, json={}).status_code == 403
+    mov = func.post('/estoque/movimentacao', headers=h_func, json={
+        'produto_id': produto_id, 'tipo': 'SAIDA', 'quantidade': 2,
+        'motivo': 'Entrega CI'
+    })
+    assert mov.status_code == 201
+    assert mov.json['estoque_atual'] == 10
+    historico = func.get('/movimentacoes')
+    assert historico.status_code == 200
+    registro = next(m for m in historico.json if m['produto'] == 'Coxinha de teste CI')
+    assert registro['usuario_nome'] == 'Funcionária CI'
 
-            desativar = admin.patch(f'/usuarios/{func_id}', headers=headers, json={'ativo':False})
-            assert desativar.status_code == 200
-            assert func.get('/produtos').status_code == 401
+    desativar = admin.patch(f'/usuarios/{func_id}', headers=headers, json={'ativo':False})
+    assert desativar.status_code == 200
+    assert func.get('/produtos').status_code == 401
 
     with psycopg2.connect(**modulo.DB_CONFIG) as conn:
         with conn.cursor() as cur:
