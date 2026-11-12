@@ -14,6 +14,12 @@ Projeto acadêmico em **Flask + PostgreSQL + HTML/CSS/JavaScript + Docker Compos
 - Histórico com identificação de quem realizou cada movimentação; registros anteriores à implantação do recurso continuam preservados, sem atribuição de usuário.
 - Integração local com Nginx no frontend, Flask no backend e PostgreSQL, sem expor o banco na rede.
 
+## Implantação pública gratuita: Oracle Cloud Always Free
+
+O projeto dispõe de um Compose específico para servidores públicos: [`compose.oracle.yaml`](compose.oracle.yaml), com Gunicorn, cookies Secure, rede interna para o banco e proxy HTTPS automático via Caddy. O `docker-compose.yaml` original continua destinado ao uso local.
+
+**Leia o [guia completo da Oracle Cloud](docs/ORACLE_CLOUD.md)** antes de liberar a aplicação na internet. Não exponha PostgreSQL ou Flask diretamente. Os recursos Always Free podem estar indisponíveis ou ser recuperados por ociosidade; não há garantia de disponibilidade e é necessário manter backups externos.
+
 ## Primeira configuração no PC de casa (Windows / PowerShell)
 
 **Requisitos:** Git, Docker Desktop instalado e iniciado. Não precisa instalar Flask ou PostgreSQL separadamente — o Docker cuida disso. O Live Server do VS Code não executa a API.

@@ -1,0 +1,11 @@
+# O hostname de PUBLIC_DOMAIN deve apontar para o IPv4 publico da VM.
+# Caddy emite e renova HTTPS automaticamente quando 80/443 estao acessiveis.
+{$PUBLIC_DOMAIN} {
+    encode gzip zstd
+    reverse_proxy frontend:80
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "same-origin"
+    }
+}

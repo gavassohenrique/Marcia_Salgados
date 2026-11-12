@@ -43,3 +43,9 @@ jobs:
         run: node --check frontend/script.js
       - name: Pytest unitario e PostgreSQL real isolado
         run: python -m pytest backend/tests -q
+      - name: Validar configuração Docker Compose da Oracle
+        env:
+          PUBLIC_DOMAIN: exemplo.invalid
+        run: docker compose -f compose.oracle.yaml config --quiet
+      - name: Verificar dependência Gunicorn
+        run: python -c "import gunicorn; print(gunicorn.__version__)"

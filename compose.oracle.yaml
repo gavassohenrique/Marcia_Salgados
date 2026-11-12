@@ -1,0 +1,90 @@
+# Deploy publico Oracle Cloud (separado de docker-compose.yaml para uso local).
+# Somente o Caddy publica portas; PostgreSQL, Flask e Nginx ficam na rede interna.
+name: marcia-salgados-oracle
+
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    networks:
+      - interna
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - |
+        python -c "from app import validar_configuracao, preparar_banco; validar_configuracao(); preparar_banco()" &&
+        exec gunicorn --bind 0.0.0.0:3000 --workers 2 --threads 2 --timeout 60 --access-logfile - --error-logfile - app:app
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?Defina FLASK_SECRET_KEY no arquivo .env}
+      COOKIE_SECURE: "true"
+    expose:
+      - "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:3000/health',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - interna
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:3000
+    expose:
+      - "80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - interna
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?Defina PUBLIC_DOMAIN no arquivo .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+    networks:
+      - interna
+
+networks:
+  interna:
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
