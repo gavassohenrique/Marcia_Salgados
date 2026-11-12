@@ -36,7 +36,7 @@ def test_flask_integrado_ao_postgresql_real():
 
     novo_usuario = admin.post('/usuarios', headers=headers, json={
         'nome': 'Funcionária CI', 'email': 'func@ci.example',
-        'senha': 'senha-funcionaria-de-ci', 'perfil': 'FUNCIONARIO'
+        'senha': 'Senha-funcionaria-de-ci!', 'perfil': 'FUNCIONARIO'
     })
     assert novo_usuario.status_code == 201
     func_id = novo_usuario.json['usuario']['id']
@@ -48,7 +48,7 @@ def test_flask_integrado_ao_postgresql_real():
     produto_id = novo_produto.json['produto']['id']
 
     func = modulo.app.test_client()
-    login_func = func.post('/auth/login', json={'email':'func@ci.example','senha':'senha-funcionaria-de-ci'})
+    login_func = func.post('/auth/login', json={'email':'func@ci.example','senha':'Senha-funcionaria-de-ci!'})
     assert login_func.status_code == 200
     h_func = {'X-CSRF-Token': login_func.json['csrf']}
     assert func.post('/produtos', headers=h_func, json={}).status_code == 403

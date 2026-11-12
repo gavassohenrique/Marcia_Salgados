@@ -161,7 +161,7 @@
   <form id="usuarioForm" class="user-form">
     <div class="field"><label for="usuarioNome">Nome *</label><input id="usuarioNome" name="nome" maxlength="100" autocomplete="name" required></div>
     <div class="field"><label for="usuarioEmail">E-mail *</label><input id="usuarioEmail" name="email" type="email" maxlength="254" autocomplete="off" required></div>
-    <div class="field"><label for="usuarioSenha">Senha inicial *</label><input id="usuarioSenha" name="senha" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><small>Use pelo menos 12 caracteres; não reutilize senhas.</small></div>
+    <div class="field"><label for="usuarioSenha">Senha inicial *</label><input id="usuarioSenha" name="senha" type="password" minlength="8" maxlength="128" autocomplete="new-password" required><small>Mínimo de 8 caracteres, uma letra maiúscula, uma minúscula e um símbolo (!, @, #...). Números são opcionais.</small></div>
     <div class="field"><label for="usuarioPerfil">Perfil *</label><select id="usuarioPerfil" name="perfil"><option value="FUNCIONARIO">Funcionário</option><option value="ADMIN">Administrador</option></select></div>
     <div class="form-actions"><button class="button primary" type="submit">Cadastrar usuário</button><p id="usuarioMensagem" role="status" aria-live="polite"></p></div>
   </form>
@@ -199,8 +199,8 @@
   <form id="alterarSenhaForm" class="dialog-form">
     <div class="dialog-heading"><h2 id="alterarSenhaTitulo">Alterar minha senha</h2><button type="button" class="close-dialog" id="fecharSenhaDialog" aria-label="Fechar">×</button></div>
     <label for="senhaAtual">Senha atual</label><input id="senhaAtual" type="password" autocomplete="current-password" required>
-    <label for="senhaNova">Nova senha (mínimo 12 caracteres)</label><input id="senhaNova" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
-    <label for="senhaConfirmacao">Confirme a nova senha</label><input id="senhaConfirmacao" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+    <label for="senhaNova">Nova senha (mínimo 8 caracteres; maiúscula, minúscula e símbolo)</label><input id="senhaNova" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+    <label for="senhaConfirmacao">Confirme a nova senha</label><input id="senhaConfirmacao" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
     <p id="alterarSenhaMensagem" role="alert" aria-live="polite"></p>
     <div class="dialog-actions"><button class="button primary" type="submit">Salvar nova senha</button></div>
   </form>
@@ -209,7 +209,7 @@
   <form id="resetSenhaForm" class="dialog-form">
     <div class="dialog-heading"><h2 id="resetSenhaTitulo">Redefinir senha</h2><button type="button" class="close-dialog" id="fecharResetDialog" aria-label="Fechar">×</button></div>
     <p id="resetUsuarioNome"></p>
-    <label for="resetSenha">Nova senha (mínimo 12 caracteres)</label><input id="resetSenha" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+    <label for="resetSenha">Nova senha (mínimo 8 caracteres; maiúscula, minúscula e símbolo)</label><input id="resetSenha" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
     <p id="resetMensagem" role="alert" aria-live="polite"></p>
     <div class="dialog-actions"><button class="button primary" type="submit">Redefinir senha</button></div>
   </form>

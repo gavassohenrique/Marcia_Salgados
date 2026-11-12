@@ -16,7 +16,7 @@ def criar_primeiro_admin():
             print("Criação do primeiro administrador (senha não aparece no terminal).")
             nome = input("Nome: ").strip()
             email = input("E-mail: ").strip().lower()
-            senha = getpass.getpass("Senha (mínimo 12 caracteres): ")
+            senha = getpass.getpass("Senha (mín. 8 caracteres, maiúscula, minúscula e símbolo): ")
             confirmacao = getpass.getpass("Repita a senha: ")
             if senha != confirmacao:
                 raise SystemExit("As senhas não coincidem; nada foi gravado.")

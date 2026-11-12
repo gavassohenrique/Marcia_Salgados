@@ -6,7 +6,7 @@ Integração real exige PostgreSQL e deve ser conferida separadamente.
 import pytest
 import app as modulo
 from app import (app, conferir_senha, hash_senha, inteiro,
-                 preco_decimal, validar_produto, validar_usuario)
+                 preco_decimal, validar_produto, validar_senha, validar_usuario)
 
 ADMIN = {"id": 1, "nome": "Admin", "email": "admin@exemplo.com",
          "perfil": "ADMIN", "ativo": True, "versao_sessao": 1}
@@ -140,13 +140,35 @@ def test_argon2id_senha():
     assert not conferir_senha(hash_guardado, "errada")
 
 
+@pytest.mark.parametrize("senha", [
+    "Aa!aaaaa",              # exatamente 8 caracteres, sem número
+    "Ab_cd123",              # underscore também conta como símbolo especial
+    "UmaSenhaMuitoLonga!2026",
+])
+def test_senha_nova_politica_aceita(senha):
+    assert validar_senha(senha) is None
+
+
+@pytest.mark.parametrize("senha", [
+    None, 12345678,
+    "Aa!aaaa",               # 7 caracteres
+    "abcdefgh!",             # sem letra maiúscula
+    "ABCDEFGH!",             # sem letra minúscula
+    "Aa123456",              # sem símbolo especial
+    "Aa aaaaa",              # espaço não é símbolo especial
+    "Aa!" + ("a" * 126),    # 129 caracteres
+])
+def test_senha_nova_politica_rejeita(senha):
+    assert validar_senha(senha) is not None
+
+
 def test_validacoes():
     base = {"nome": "Coxinha", "preco": "5,50", "estoque": 2, "estoque_minimo": 1}
     assert validar_produto(base) is None
     assert validar_produto({**base, "estoque": 1.5}) is not None
     assert validar_produto({**base, "preco": "NaN"}) is not None
     assert validar_usuario({"nome": "Márcia", "email": "marcia@exemplo.com",
-                            "senha": "minha-senha-segura", "perfil": "FUNCIONARIO"}) is None
+                            "senha": "Minha-senha-segura!", "perfil": "FUNCIONARIO"}) is None
     assert validar_usuario({"nome": "Márcia", "email": "incorreto", "senha": "curta",
                             "perfil": "ADMIN"}) is not None
 
@@ -164,7 +186,7 @@ def test_admin_cadastro_usuario(client, monkeypatch, fake_db):
     conn = fake_db([{"id": 4, "nome": "Funcionário", "email": "fun@exemplo.com",
                      "perfil": "FUNCIONARIO", "ativo": True}])
     r = client.post("/usuarios", json={"nome": "Funcionário", "email": "fun@exemplo.com",
-                  "senha": "senha-muito-segura", "perfil": "FUNCIONARIO"}, headers=HEADERS)
+                  "senha": "Senha-muito-segura!", "perfil": "FUNCIONARIO"}, headers=HEADERS)
     assert r.status_code == 201
     assert conn.commits == 1
     assert any("INSERT INTO usuarios" in sql for sql, _ in conn.cur.sql)

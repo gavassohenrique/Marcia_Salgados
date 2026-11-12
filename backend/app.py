@@ -189,8 +189,19 @@ def validar_configuracao():
 
 
 def validar_senha(senha):
-    if not isinstance(senha, str) or not 12 <= len(senha) <= 128:
-        return "A senha deve ter de 12 a 128 caracteres."
+    """Exige tamanho mínimo, letras maiúsculas/minúsculas e símbolo especial.
+
+    Números são permitidos, mas não obrigatórios; espaços não contam como símbolo.
+    A política vale para criação e troca, sem bloquear login de senhas já existentes.
+    """
+    if not isinstance(senha, str) or not 8 <= len(senha) <= 128:
+        return "A senha deve ter de 8 a 128 caracteres."
+    if not any(caractere.isupper() for caractere in senha):
+        return "A senha precisa ter pelo menos uma letra maiúscula."
+    if not any(caractere.islower() for caractere in senha):
+        return "A senha precisa ter pelo menos uma letra minúscula."
+    if not any(not caractere.isalnum() and not caractere.isspace() for caractere in senha):
+        return "A senha precisa ter pelo menos um caractere especial (ex.: !, @, # ou _)."
     return None
 
 

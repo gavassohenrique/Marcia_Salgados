@@ -399,6 +399,16 @@ document.getElementById("exportarCsv").addEventListener("click", () => {
 buscaProduto.addEventListener("input", renderizarProdutos);
 filtroEstoque.addEventListener("change", renderizarProdutos);
 // Administração de usuários: controles ocultos para funcionário e autorização no servidor.
+function validarNovaSenha(senha) {
+  const caracteres = Array.from(String(senha ?? ""));
+  if (caracteres.length < 8 || caracteres.length > 128) return "A senha deve ter de 8 a 128 caracteres.";
+  if (!/\p{Lu}/u.test(senha)) return "Inclua pelo menos uma letra maiúscula.";
+  if (!/\p{Ll}/u.test(senha)) return "Inclua pelo menos uma letra minúscula.";
+  if (!caracteres.some(c => !/[\p{L}\p{N}\s]/u.test(c))) return "Inclua pelo menos um símbolo especial (ex.: !, @, # ou _).";
+  return "";
+}
+
+
 async function carregarUsuarios() {
   if (usuarioAtual?.perfil !== "ADMIN") return;
   const container = document.getElementById("usuariosLista");
@@ -441,6 +451,8 @@ document.getElementById("usuarioForm").addEventListener("submit", async event =>
   const botao = event.currentTarget.querySelector('button[type="submit"]');
   const aviso = document.getElementById("usuarioMensagem");
   const dados = Object.fromEntries(new FormData(event.currentTarget));
+  const erroSenha = validarNovaSenha(dados.senha);
+  if (erroSenha) { aviso.textContent = erroSenha; aviso.className = "error"; return; }
   bloquearBotao(botao, true);
   try {
     await obterJson(await apiFetch("/usuarios", { method: "POST", body: JSON.stringify(dados) }));
@@ -464,6 +476,8 @@ document.getElementById("alterarSenhaForm").addEventListener("submit", async eve
   const senha_atual = document.getElementById("senhaAtual").value;
   const nova_senha = document.getElementById("senhaNova").value;
   if (nova_senha !== document.getElementById("senhaConfirmacao").value) { aviso.textContent = "As senhas não coincidem."; return; }
+  const erroSenha = validarNovaSenha(nova_senha);
+  if (erroSenha) { aviso.textContent = erroSenha; return; }
   const botao = event.currentTarget.querySelector('button[type="submit"]');
   bloquearBotao(botao, true);
   try {
@@ -478,6 +492,8 @@ document.getElementById("fecharResetDialog").addEventListener("click", () => doc
 document.getElementById("resetSenhaForm").addEventListener("submit", async event => {
   event.preventDefault();
   const botao = event.currentTarget.querySelector('button[type="submit"]');
+  const erroSenha = validarNovaSenha(document.getElementById("resetSenha").value);
+  if (erroSenha) { document.getElementById("resetMensagem").textContent = erroSenha; return; }
   bloquearBotao(botao, true);
   try {
     await obterJson(await apiFetch(`/usuarios/${resetUsuarioId}/redefinir-senha`, { method: "POST",

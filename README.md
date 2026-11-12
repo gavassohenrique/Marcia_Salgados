@@ -69,7 +69,7 @@ docker compose ps
 docker compose exec backend python manage.py criar-admin
 ```
 
-O comando pede **nome, e-mail, senha e confirmação**. A senha não aparece enquanto você digita, não fica no histórico do terminal e é persistida no banco **apenas como hash Argon2id**. Use senha longa, exclusiva, de no mínimo 12 caracteres. Se já houver usuários, o comando não recriará nem sobrescreverá contas; use o painel administrativo para adicionar outras.
+O comando pede **nome, e-mail, senha e confirmação**. A senha não aparece enquanto você digita, não fica no histórico do terminal e é persistida no banco **apenas como hash Argon2id**. Use uma senha exclusiva de pelo menos 8 caracteres, com uma letra maiúscula, uma minúscula e um símbolo especial (como !, @, # ou _). Números são opcionais; recomendamos senhas mais longas, sempre que possível. Se já houver usuários, o comando não recriará nem sobrescreverá contas; use o painel administrativo para adicionar outras.
 
 Abra **http://localhost:8080** e entre com o e-mail e senha criados. Para verificar os serviços:
 
@@ -79,7 +79,7 @@ Abra **http://localhost:8080** e entre com o e-mail e senha criados. Para verifi
 ## Criar usuários e registrar operações
 
 1. Entre como **Administrador**.
-2. Abra **Usuários** no menu. Preencha nome, e-mail, senha inicial e perfil (Administrador ou Funcionário).
+2. Abra **Usuários** no menu. Preencha nome, e-mail, senha inicial e perfil (Administrador ou Funcionário). A senha deve ter pelo menos 8 caracteres, maiúscula, minúscula e símbolo especial; números são opcionais.
 3. Um funcionário pode consultar produtos, cadastrar pedidos de referência e registrar entradas/saídas. Não pode cadastrar/editar produtos nem administrar usuários.
 4. Cada entrada/saída registra o **nome do usuário autenticado** no histórico. Registros antigos são mantidos sem autor identificado.
 5. Para trocar sua senha, use **Minha senha**. O administrador também pode redefinir senhas de outros usuários ou desativá-los.
