@@ -103,3 +103,11 @@ A próxima etapa será concentrada na estabilização e preparação do projeto 
 O projeto já possui a funcionalidade principal necessária para demonstrar um fluxo de entrada de dados, processamento e geração de resultado. O controle de estoque está integrado ao backend e ao PostgreSQL, com validações e rastreabilidade.
 
 A prioridade desta etapa é concluir as melhorias pendentes, validar todas as funcionalidades de forma integrada, corrigir as inconsistências de documentação e preparar o projeto para a apresentação e entrega final.
+
+## Atualização técnica — 12/11/2026
+
+Nesta versão do código, foram preparados reparos para remoção de rota duplicada no Flask, validação estrita de dados, login por sessão com proteção CSRF, registro de pedidos de referência e associação opcional de saídas, além de configuração do Compose com segredos externos e volume persistente. Os testes antigos de Node.js foram substituídos por testes de Flask com mocks.
+
+A interface também recebeu formulário visual de edição, status consultado na API, navegação móvel, paginação de histórico e exportação CSV dos itens carregados. Esses ajustes exigem validação de ponta a ponta no ambiente real antes da entrega.
+
+**Escopo e evidências:** a associação a pedido é referência para saída de estoque; não envolve gestão financeira ou faturamento. Resultados de testes de navegador com API simulada não comprovam o funcionamento de PostgreSQL ou Docker reais.

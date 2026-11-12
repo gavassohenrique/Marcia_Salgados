@@ -1,66 +1,47 @@
 apiVersion: v1
 kind: ConfigMap
-
 metadata:
   name: app-config
-
 data:
-
   DB_HOST: postgres-service
-
   init.sql: |
+    -- Executado apenas na criação inicial do volume PostgreSQL.
+    -- Volumes existentes mantêm seus dados; o backend cria tabelas ausentes.
     CREATE TABLE IF NOT EXISTS produtos (
         id SERIAL PRIMARY KEY,
         nome VARCHAR(100) NOT NULL,
-        preco NUMERIC(10,2) NOT NULL CHECK (preco >= 0),
-        estoque INTEGER NOT NULL DEFAULT 0,
-        estoque_minimo INTEGER NOT NULL DEFAULT 5,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        preco NUMERIC(10,2) NOT NULL CHECK (preco > 0),
+        estoque INTEGER NOT NULL DEFAULT 0 CHECK (estoque >= 0),
+        estoque_minimo INTEGER NOT NULL DEFAULT 0 CHECK (estoque_minimo >= 0),
+        criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-
+    
     CREATE TABLE IF NOT EXISTS pedidos (
         id SERIAL PRIMARY KEY,
         cliente VARCHAR(150) NOT NULL,
-        status VARCHAR(30) NOT NULL DEFAULT 'FINALIZADO',
-        total NUMERIC(10,2) NOT NULL DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        referencia VARCHAR(80),
+        criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-
-    CREATE TABLE IF NOT EXISTS pedido_itens (
+    
+    CREATE TABLE IF NOT EXISTS movimentacoes (
         id SERIAL PRIMARY KEY,
-        pedido_id INTEGER NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
-        produto_id INTEGER NOT NULL REFERENCES produtos(id),
-        quantidade INTEGER NOT NULL,
-        preco_unitario NUMERIC(10,2) NOT NULL,
-        subtotal NUMERIC(10,2) NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS movimentacoes_estoque (
-        id SERIAL PRIMARY KEY,
-        produto_id INTEGER NOT NULL REFERENCES produtos(id),
-        tipo VARCHAR(20) NOT NULL,
-        quantidade INTEGER NOT NULL,
+        produto_id INTEGER NOT NULL REFERENCES produtos(id) ON DELETE RESTRICT,
+        tipo VARCHAR(7) NOT NULL CHECK (tipo IN ('ENTRADA', 'SAIDA')),
+        quantidade INTEGER NOT NULL CHECK (quantidade > 0),
         estoque_anterior INTEGER NOT NULL,
         estoque_posterior INTEGER NOT NULL,
-        motivo VARCHAR(255),
-        pedido_id INTEGER REFERENCES pedidos(id),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        motivo VARCHAR(200),
+        pedido_id INTEGER,
+        criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-
-    INSERT INTO produtos
-    (nome, preco, estoque, estoque_minimo)
+    
+    CREATE INDEX IF NOT EXISTS idx_movimentacoes_criado_em
+        ON movimentacoes (criado_em DESC, id DESC);
+    
+    INSERT INTO produtos (nome, preco, estoque, estoque_minimo)
     SELECT 'Coxinha', 5.00, 20, 5
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM produtos
-        WHERE nome = 'Coxinha'
-    );
-
-    INSERT INTO produtos
-    (nome, preco, estoque, estoque_minimo)
-    SELECT 'Hamburgão', 8.00, 15, 5
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM produtos
-        WHERE nome = 'Hamburgão'
-    );
+    WHERE NOT EXISTS (SELECT 1 FROM produtos WHERE nome = 'Coxinha');
+    
+    INSERT INTO produtos (nome, preco, estoque, estoque_minimo)
+    SELECT 'Pastel', 6.00, 15, 5
+    WHERE NOT EXISTS (SELECT 1 FROM produtos WHERE nome = 'Pastel');

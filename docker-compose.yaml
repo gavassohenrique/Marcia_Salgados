@@ -1,48 +1,53 @@
 services:
-
   postgres:
-    image: postgres:15
-    container_name: postgres_db
-    restart: always
+    image: postgres:15-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: appdb
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Crie .env com POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d appdb"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 15
 
   backend:
-    build:
-      context: ./backend
-    container_name: backend_app
-    restart: always
+    build: ./backend
+    restart: unless-stopped
     environment:
       DB_HOST: postgres
-      PORT: 3000
+      PORT: "3000"
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Crie .env com POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
+      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:?Crie .env com APP_ADMIN_PASSWORD}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?Crie .env com FLASK_SECRET_KEY}
+      COOKIE_SECURE: "false"  # true quando usado com HTTPS
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:3000/health',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   frontend:
-    build:
-      context: ./frontend
-    container_name: frontend_app
-    restart: always
+    build: ./frontend
+    restart: unless-stopped
     environment:
-      BACKEND_URL: "http://backend:3000"
+      BACKEND_URL: http://backend:3000
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:

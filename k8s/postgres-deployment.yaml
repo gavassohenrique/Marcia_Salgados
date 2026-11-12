@@ -1,63 +1,57 @@
 apiVersion: apps/v1
 kind: Deployment
-
 metadata:
   name: postgres
-
 spec:
-
   replicas: 1
-
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: postgres
-
   template:
-
     metadata:
       labels:
         app: postgres
-
     spec:
-
       containers:
-
         - name: postgres
-
-          image: postgres:15
-
+          image: postgres:15-alpine
           ports:
             - containerPort: 5432
-
           env:
-
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
                   name: db-secret
                   key: POSTGRES_USER
-
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: db-secret
                   key: POSTGRES_PASSWORD
-
             - name: POSTGRES_DB
               valueFrom:
                 secretKeyRef:
                   name: db-secret
                   key: POSTGRES_DB
-
           volumeMounts:
-
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
             - name: database-init
               mountPath: /docker-entrypoint-initdb.d/init.sql
               subPath: init.sql
-
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 5
       volumes:
-
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-pvc
         - name: database-init
-
           configMap:
             name: app-config

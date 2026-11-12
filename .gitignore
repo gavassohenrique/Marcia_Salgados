@@ -12,3 +12,6 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Segredos reais do Kubernetes
+k8s/secret.yaml

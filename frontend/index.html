@@ -21,10 +21,11 @@
     <a href="#produtos">Produtos</a>
     <a href="#cadastro">Novo produto</a>
     <a href="#historico">Movimentações</a>
+    <a href="#pedidos">Pedidos</a>
   </nav>
-  <div class="system-status" aria-label="Status do sistema">
-    <span aria-hidden="true"></span>
-    Sistema ativo
+  <div class="header-actions">
+    <div class="system-status offline" id="systemStatus" role="status" aria-live="polite"><span aria-hidden="true"></span><span id="systemStatusText">Verificando...</span></div>
+    <button id="sairBtn" class="button outline logout-button" type="button" hidden>Sair</button>
   </div>
 </header>
 <main>
@@ -114,15 +115,15 @@
       </div>
       <div class="field">
         <label for="preco" title="Valor de venda de uma unidade.">Preço unitário * <span class="tooltip" tabindex="0" aria-label="Ajuda para preço" data-tooltip="Informe o valor de uma unidade em reais. Use ponto ou vírgula como separador decimal.">?</span></label>
-        <div class="input-prefix"><span>R$</span><input id="preco" name="preco" type="number" min="0.01" step="0.01" placeholder="5,00" required></div>
+        <div class="input-prefix"><span>R$</span><input id="preco" name="preco" type="text" inputmode="decimal" placeholder="5,00" maxlength="15" required></div>
       </div>
       <div class="field">
         <label for="estoque" title="Quantidade disponível no momento do cadastro.">Estoque inicial <span class="tooltip" tabindex="0" aria-label="Ajuda para estoque inicial" data-tooltip="Quantidade de unidades disponíveis ao cadastrar este produto.">?</span></label>
-        <input id="estoque" name="estoque" type="number" min="0" value="0">
+        <input id="estoque" name="estoque" type="number" min="0" step="1" value="0">
       </div>
       <div class="field full-width">
         <label for="estoque_minimo" title="Limite que gera alerta de estoque baixo.">Estoque mínimo <span class="tooltip" tabindex="0" aria-label="Ajuda para estoque mínimo" data-tooltip="Quando o saldo ficar igual ou abaixo deste número, o produto será sinalizado como estoque baixo.">?</span></label>
-        <input id="estoque_minimo" name="estoque_minimo" type="number" min="0" value="5">
+        <input id="estoque_minimo" name="estoque_minimo" type="number" min="0" step="1" value="5">
         <small>O sistema destacará o produto quando atingir essa quantidade.</small>
       </div>
     </div>
@@ -132,11 +133,31 @@
     </div>
   </form>
 </section>
+<section id="pedidos" class="section">
+  <div class="section-heading">
+    <span class="eyebrow">RASTREABILIDADE</span>
+    <h2>Pedidos de referência</h2>
+    <p>Registre um cliente e vincule as saídas de estoque a um pedido. Não é um módulo financeiro de vendas.</p>
+  </div>
+  <form id="pedidoForm" class="order-form">
+    <label for="pedidoCliente">Cliente *</label>
+    <input id="pedidoCliente" name="cliente" maxlength="150" placeholder="Ex.: Posto Central" required>
+    <label for="pedidoReferencia">Referência (opcional)</label>
+    <input id="pedidoReferencia" name="referencia" maxlength="80" placeholder="Ex.: Entrega de sexta-feira">
+    <button class="button primary" type="submit">Criar pedido</button>
+    <p id="pedidoMensagem" aria-live="polite"></p>
+  </form>
+  <div id="pedidosLista" class="orders" aria-live="polite"></div>
+</section>
 <section id="historico" class="section">
   <div class="section-heading">
     <span class="eyebrow">RASTREABILIDADE</span>
     <h2>Histórico de movimentações</h2>
     <p>Acompanhe as últimas entradas e saídas registradas.</p>
+  </div>
+  <div class="history-tools">
+    <button id="exportarCsv" class="button outline" type="button">Exportar CSV</button>
+    <button id="maisHistorico" class="button outline" type="button" hidden>Carregar mais</button>
   </div>
   <div id="historicoLista" class="history" aria-live="polite">Carregando histórico...</div>
 </section>
@@ -145,6 +166,28 @@
   <div class="footer-brand"><span class="brand-mark small" aria-hidden="true">M</span><strong>Márcia Salgados</strong></div>
   <span>Sistema de Gestão e Controle de Estoque</span>
 </footer>
+<dialog id="editarDialog" class="edit-dialog" aria-labelledby="editarTitulo">
+  <form id="editarForm" class="dialog-form">
+    <div class="dialog-heading"><div><span class="eyebrow">ATUALIZAÇÃO</span><h2 id="editarTitulo">Editar produto</h2></div><button id="fecharEdicao" type="button" class="close-dialog" aria-label="Fechar">×</button></div>
+    <label for="editarNome">Nome do produto</label><input id="editarNome" maxlength="100" required>
+    <label for="editarPreco">Preço unitário (R$)</label><input id="editarPreco" inputmode="decimal" placeholder="8,50" required>
+    <label for="editarMinimo">Estoque mínimo</label><input id="editarMinimo" type="number" min="0" step="1" required>
+    <p class="dialog-note">O saldo atual só é alterado por movimentações.</p>
+    <p id="editarMensagem" aria-live="polite"></p>
+    <div class="dialog-actions"><button id="cancelarEdicao" class="button outline" type="button">Cancelar</button><button class="button primary" type="submit">Salvar alterações</button></div>
+  </form>
+</dialog>
+<div id="loginOverlay" class="login-overlay" role="dialog" aria-modal="true" aria-labelledby="loginTitulo">
+  <form id="loginForm" class="login-panel">
+    <span class="eyebrow">ÁREA RESTRITA</span>
+    <h2 id="loginTitulo">Acesse o painel</h2>
+    <p>Digite a senha configurada no arquivo .env para consultar e movimentar o estoque.</p>
+    <label for="loginSenha">Senha de acesso</label>
+    <input id="loginSenha" name="senha" type="password" autocomplete="current-password" required>
+    <button class="button primary" type="submit">Entrar no sistema</button>
+    <p id="loginMensagem" role="alert" aria-live="polite"></p>
+  </form>
+</div>
 <script src="script.js"></script>
 </body>
 </html>

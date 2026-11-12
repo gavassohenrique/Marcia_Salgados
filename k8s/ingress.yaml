@@ -8,6 +8,10 @@ spec:
 
   ingressClassName: nginx
 
+  tls:
+    - hosts:
+        - msalgados.local
+      secretName: msalgados-tls
   rules:
 
     - host: msalgados.local

@@ -1,9 +1,10 @@
 {
-  "name": "msalgados",
-  "version": "1.0.0",
-  "description": "Sistema Marcia Salgados",
+  "name": "marcia-salgados",
+  "version": "2.0.0",
   "private": true,
+  "description": "Sistema de estoque Flask/PostgreSQL da Márcia Salgados",
   "scripts": {
-    "test": "npm --prefix backend test"
+    "test": "python -m pytest backend/tests -q",
+    "check:js": "node --check frontend/script.js"
   }
 }
