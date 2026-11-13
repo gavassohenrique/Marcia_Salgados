@@ -11,5 +11,4 @@ CREATE TABLE IF NOT EXISTS pedido_itens (
 );
 ALTER TABLE movimentacoes ADD COLUMN IF NOT EXISTS pedido_item_id INTEGER
   REFERENCES pedido_itens(id) ON DELETE RESTRICT;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_movimentacoes_pedido_item
-  ON movimentacoes(pedido_item_id) WHERE pedido_item_id IS NOT NULL;
+-- O índice de histórico é mantido pela migração 003 (múltiplos deltas por item).

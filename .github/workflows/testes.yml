@@ -1,4 +1,4 @@
-name: Testes da API e autenticacao
+name: Testes de pedidos, documentos, estoque e autenticacao
 on:
   push:
     branches: [main]
@@ -43,6 +43,8 @@ jobs:
         run: node --check frontend/script.js
       - name: Pytest unitario e PostgreSQL real isolado
         run: python -m pytest backend/tests -q
+      - name: Validar ambiente reproduzível de testes
+        run: docker compose -f compose.tests.yaml config --quiet
       - name: Validar configuração Docker Compose da Oracle
         env:
           PUBLIC_DOMAIN: exemplo.invalid

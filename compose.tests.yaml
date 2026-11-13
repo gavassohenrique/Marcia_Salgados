@@ -1,0 +1,30 @@
+services:
+  postgres-test:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: senha-descartavel-testes
+      POSTGRES_DB: test_marcia_pedidos
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U test_user -d test_marcia_pedidos"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  tests:
+    build: ./backend
+    working_dir: /repo
+    volumes:
+      - .:/repo:ro
+    environment:
+      DB_HOST: postgres-test
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: senha-descartavel-testes
+      POSTGRES_DB: test_marcia_pedidos
+      FLASK_SECRET_KEY: chave-descartavel-exclusiva-dos-testes-isolados
+      TEST_POSTGRES: "1"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    command: [python, -m, pytest, backend/tests, -q, -p, no:cacheprovider]

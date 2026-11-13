@@ -32,7 +32,7 @@ Registrar 10 unidades do produto, motivo "Nova produção". Verificar o novo sal
 
 ## 6. Pedido e saída de estoque
 
-Cadastrar um **pedido de referência**, por exemplo cliente "Posto Central". Na ficha do produto, selecionar Saída, informar 4 unidades e vincular o pedido. Mostrar a movimentação no histórico com o identificador do pedido. Esclarecer: o sistema ainda **não é um módulo financeiro de pedidos**, nem processa automaticamente um carrinho com vários itens.
+Cadastrar um pedido com cliente, referência e dois produtos do ambiente de teste. Mostrar a baixa automática e o histórico; não repetir a saída manual. Abrir o PDF e baixar o TXT, conferindo preços históricos e total. Explicar que são documentos comerciais, sem valor fiscal, de um pedido que já movimentou estoque. Editar quantidades e mostrar somente os deltas; cancelar e mostrar devolução, status CANCELADO e histórico preservado. Pedidos antigos sem itens exigem reconciliação antes de ajustes automáticos.
 
 ## 7. Proteções e rastreabilidade
 
@@ -50,6 +50,6 @@ SELECT * FROM movimentacoes ORDER BY id DESC;
 
 ## 8. Conclusão
 
-Destacar ganhos de organização, histórico, validação e base para próximas automações. Como futuras melhorias, citar relatórios em PDF, envio de e-mail, relatórios consolidados por pedido, perfis de usuário e implantação com autenticação mais robusta.
+Destacar organização, documentos PDF/TXT, validação, perfis e trilha de auditoria. Como possíveis melhorias futuras, citar orçamento pendente com confirmação explícita e relatórios consolidados. A recuperação de senha por e-mail permanece removida.
 
 **Nota de precisão:** este documento é roteiro; não é evidência de que Docker, banco ou testes ponta a ponta foram executados. Ajustar as falas conforme o resultado real da demonstração.

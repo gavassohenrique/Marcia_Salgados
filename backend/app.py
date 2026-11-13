@@ -4,13 +4,14 @@ import re
 import os
 import secrets
 import time
+import json
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 from pathlib import Path
 
 import psycopg2
-from flask import Flask, g, jsonify, request, session
+from flask import Flask, g, jsonify, request, session, Response
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from argon2 import PasswordHasher, exceptions as argon2_errors
@@ -174,6 +175,7 @@ def preparar_banco():
                 with conn.cursor() as cur:
                     cur.execute(sql)
                     cur.execute((Path(__file__).parent / "migrations" / "002_pedido_itens.sql").read_text(encoding="utf-8"))
+                    cur.execute((Path(__file__).parent / "migrations" / "003_pedidos_edicao.sql").read_text(encoding="utf-8"))
             return
         except psycopg2.Error:
             if tentativa == 9:
@@ -628,12 +630,12 @@ def listar_pedidos():
         conn = get_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""SELECT p.id, p.cliente, p.referencia, p.criado_em,
-                                  p.usuario_id, p.estoque_processado, u.nome AS usuario_nome,
+                                  p.usuario_id, p.estoque_processado, p.status, p.versao, u.nome AS usuario_nome,
                                   COALESCE((SELECT json_agg(json_build_object(
                                     'id', i.id, 'produto_id', i.produto_id,
                                     'produto_nome', i.produto_nome, 'quantidade', i.quantidade,
                                     'preco_unitario', i.preco_unitario) ORDER BY i.id)
-                                    FROM pedido_itens i WHERE i.pedido_id=p.id), '[]'::json) AS itens
+                                    FROM pedido_itens i WHERE i.pedido_id=p.id AND i.ativo), '[]'::json) AS itens
                            FROM pedidos p LEFT JOIN usuarios u ON u.id=p.usuario_id
                            ORDER BY p.id DESC LIMIT 100""")
             return jsonify(cur.fetchall())
@@ -685,7 +687,7 @@ def cadastrar_pedido():
                     return json_error(f"Estoque insuficiente para {produto['nome']}. Disponível: {produto['estoque']}.", 409)
             cur.execute("""INSERT INTO pedidos (cliente, referencia, usuario_id, estoque_processado)
                            VALUES (%s, %s, %s, TRUE)
-                           RETURNING id, cliente, referencia, criado_em, usuario_id, estoque_processado""",
+                           RETURNING id, cliente, referencia, criado_em, usuario_id, estoque_processado, status, versao""",
                         (cliente, referencia.strip() or None, g.usuario["id"]))
             pedido = cur.fetchone()
             pedido["itens"] = []
@@ -706,6 +708,7 @@ def cadastrar_pedido():
                 pedido["itens"].append({"id": item_id, "produto_id": produto["id"],
                                         "produto_nome": produto["nome"], "quantidade": quantidade,
                                         "preco_unitario": produto["preco"]})
+            registrar_evento(cur, pedido["id"], "CRIACAO", None, pedido)
         conn.commit()
         return jsonify({"mensagem": "Pedido cadastrado e saída de estoque registrada.", "pedido": pedido}), 201
     except psycopg2.Error:
@@ -714,6 +717,163 @@ def cadastrar_pedido():
         return json_error("Não foi possível cadastrar o pedido.", 503)
     finally:
         if conn:
+            get_pool().putconn(conn)
+
+
+def registrar_evento(cur, pedido_id, acao, antes, depois):
+    cur.execute("""INSERT INTO pedido_eventos(pedido_id,usuario_id,acao,antes,depois)
+                   VALUES (%s,%s,%s,%s::jsonb,%s::jsonb)""",
+                (pedido_id, g.usuario["id"], acao,
+                 json.dumps(antes, default=str) if antes is not None else None,
+                 json.dumps(depois, default=str)))
+
+
+def ler_pedido(cur, pedido_id, bloqueio="FOR UPDATE"):
+    # Apenas constantes internas são usadas no sufixo SQL.
+    cur.execute("SELECT * FROM pedidos WHERE id=%s " + bloqueio, (pedido_id,))
+    pedido = cur.fetchone()
+    if pedido:
+        cur.execute("SELECT * FROM pedido_itens WHERE pedido_id=%s AND ativo ORDER BY id", (pedido_id,))
+        pedido["itens"] = cur.fetchall()
+    return pedido
+
+
+def validar_edicao(data):
+    if not isinstance(data, dict):
+        raise ValueError("Dados inválidos.")
+    versao = inteiro(data.get("versao"), minimo=1)
+    cliente, referencia = data.get("cliente"), data.get("referencia", "")
+    if not isinstance(cliente, str) or not 1 <= len(cliente.strip()) <= 150:
+        raise ValueError("Informe um cliente de até 150 caracteres.")
+    if not isinstance(referencia, str) or len(referencia) > 80:
+        raise ValueError("Informe uma referência de até 80 caracteres.")
+    itens = data.get("itens")
+    if not isinstance(itens, list) or not 1 <= len(itens) <= 100:
+        raise ValueError("Informe de 1 a 100 itens.")
+    quantidades = {}
+    for item in itens:
+        if not isinstance(item, dict):
+            raise ValueError("Item inválido.")
+        pid = inteiro(item.get("produto_id"), minimo=1)
+        if pid in quantidades:
+            raise ValueError("Selecione cada produto apenas uma vez.")
+        quantidades[pid] = inteiro(item.get("quantidade"), minimo=1)
+    return versao, cliente.strip(), referencia.strip() or None, quantidades
+
+
+@app.put("/pedidos/<int:pedido_id>")
+@app.delete("/pedidos/<int:pedido_id>")
+def alterar_pedido(pedido_id):
+    cancelar = request.method == "DELETE"
+    data = request.get_json(silent=True)
+    try:
+        if cancelar:
+            versao = inteiro(data.get("versao") if isinstance(data, dict) else None, minimo=1)
+        else:
+            versao, cliente, referencia, quantidades = validar_edicao(data)
+    except ValueError as exc:
+        return json_error(str(exc))
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            antes = ler_pedido(cur, pedido_id)
+            if not antes:
+                conn.rollback()
+                return json_error("Pedido não encontrado.", 404)
+            if antes["status"] == "CANCELADO" or antes["versao"] != versao:
+                conn.rollback()
+                return json_error("Pedido cancelado ou alterado por outra pessoa. Atualize a lista.", 409)
+            if not antes["estoque_processado"] or not antes["itens"]:
+                conn.rollback()
+                return json_error("Pedido antigo sem itens detalhados. Consulte o histórico e reconcilie o estoque antes de ajustar.", 409)
+            if cancelar:
+                quantidades = {}
+            antigos = {i["produto_id"]: i for i in antes["itens"]}
+            ids = sorted(set(antigos) | set(quantidades))
+            # Sempre pedido primeiro, depois produtos em ID crescente; mesma ordem da criação.
+            cur.execute("SELECT id,nome,preco,estoque FROM produtos WHERE id=ANY(%s) ORDER BY id FOR UPDATE", (ids,))
+            produtos = cur.fetchall()
+            if len(produtos) != len(ids):
+                conn.rollback()
+                return json_error("Produto não encontrado.", 404)
+            for produto in produtos:
+                pid = produto["id"]
+                delta = quantidades.get(pid, 0) - antigos.get(pid, {}).get("quantidade", 0)
+                saldo = produto["estoque"] - delta
+                if not 0 <= saldo <= MAX_INT:
+                    conn.rollback()
+                    return json_error(f"Saldo inválido para {produto['nome']}. Disponível: {produto['estoque']}.", 409)
+                item = antigos.get(pid)
+                if pid in quantidades:
+                    # Reativação conserva preço/nome já registrados; produto novo usa catálogo atual.
+                    cur.execute("""INSERT INTO pedido_itens(pedido_id,produto_id,produto_nome,preco_unitario,quantidade)
+                                   VALUES (%s,%s,%s,%s,%s)
+                                   ON CONFLICT (pedido_id,produto_id) DO UPDATE
+                                   SET quantidade=EXCLUDED.quantidade, ativo=TRUE RETURNING id""",
+                                (pedido_id, pid, produto["nome"], produto["preco"], quantidades[pid]))
+                    item_id = cur.fetchone()["id"]
+                else:
+                    item_id = item["id"]
+                    cur.execute("UPDATE pedido_itens SET ativo=FALSE WHERE id=%s", (item_id,))
+                if delta:
+                    cur.execute("UPDATE produtos SET estoque=%s WHERE id=%s", (saldo, pid))
+                    cur.execute("""INSERT INTO movimentacoes(produto_id,tipo,quantidade,estoque_anterior,
+                                   estoque_posterior,motivo,pedido_id,usuario_id,pedido_item_id)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                                (pid, "SAIDA" if delta > 0 else "ENTRADA", abs(delta), produto["estoque"], saldo,
+                                 "Cancelamento de pedido" if cancelar else "Edição de pedido",
+                                 pedido_id, g.usuario["id"], item_id))
+            if cancelar:
+                # Itens permanecem visíveis no documento cancelado e no histórico.
+                cur.execute("UPDATE pedido_itens SET ativo=TRUE WHERE id=ANY(%s)", ([i["id"] for i in antes["itens"]],))
+                cur.execute("UPDATE pedidos SET status='CANCELADO',versao=versao+1,atualizado_em=NOW() WHERE id=%s", (pedido_id,))
+            else:
+                cur.execute("UPDATE pedidos SET cliente=%s,referencia=%s,versao=versao+1,atualizado_em=NOW() WHERE id=%s",
+                            (cliente, referencia, pedido_id))
+            depois = ler_pedido(cur, pedido_id)
+            registrar_evento(cur, pedido_id, "CANCELAMENTO" if cancelar else "EDICAO", antes, depois)
+        conn.commit()
+        return jsonify({"mensagem": "Pedido cancelado; estoque devolvido." if cancelar else "Pedido atualizado; diferenças de estoque registradas.", "pedido": depois})
+    except psycopg2.Error:
+        if conn:
+            conn.rollback()
+        return json_error("Não foi possível atualizar o pedido. Nenhuma alteração foi salva.", 503)
+    finally:
+        if conn:
+            get_pool().putconn(conn)
+
+
+@app.get("/pedidos/<int:pedido_id>")
+@app.get("/pedidos/<int:pedido_id>/documento.<formato>")
+def consultar_pedido(pedido_id, formato=None):
+    if formato not in (None, "pdf", "txt"):
+        return json_error("Formato inválido.", 400)
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            pedido = ler_pedido(cur, pedido_id, "FOR SHARE")
+            if not pedido:
+                return json_error("Pedido não encontrado.", 404)
+            if formato:
+                if not pedido["itens"]:
+                    return json_error("Pedido antigo sem itens: não é possível calcular um documento sem inventar valores.", 409)
+                from documentos import gerar_pdf, gerar_txt
+                conteudo = gerar_pdf(pedido) if formato == "pdf" else gerar_txt(pedido).encode("utf-8")
+                disposicao = "inline" if request.args.get("visualizar") == "1" else "attachment"
+                return Response(conteudo, content_type="application/pdf" if formato == "pdf" else "text/plain; charset=utf-8",
+                                headers={"Content-Disposition": f'{disposicao}; filename="pedido-{pedido_id}.{formato}"',
+                                         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+            cur.execute("""SELECT acao,antes,depois,criado_em,usuario_id FROM pedido_eventos
+                           WHERE pedido_id=%s ORDER BY id""", (pedido_id,))
+            pedido["historico"] = cur.fetchall()
+            return jsonify(pedido)
+    except psycopg2.Error:
+        return json_error("Não foi possível consultar o pedido.", 503)
+    finally:
+        if conn:
+            conn.rollback()
             get_pool().putconn(conn)
 
 
@@ -742,12 +902,12 @@ def movimentar_estoque():
         conn = get_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if pedido_id is not None:
-                cur.execute("SELECT id, estoque_processado FROM pedidos WHERE id=%s", (pedido_id,))
+                cur.execute("SELECT id, estoque_processado, status FROM pedidos WHERE id=%s FOR UPDATE", (pedido_id,))
                 pedido = cur.fetchone()
                 if not pedido:
                     conn.rollback()
                     return json_error("Pedido não encontrado.", 404)
-                if pedido["estoque_processado"]:
+                if pedido["estoque_processado"] or pedido["status"] == "CANCELADO":
                     conn.rollback()
                     return json_error("Este pedido já teve seus itens baixados automaticamente.", 409)
             cur.execute("SELECT estoque, estoque_minimo FROM produtos WHERE id=%s FOR UPDATE", (produto_id,))

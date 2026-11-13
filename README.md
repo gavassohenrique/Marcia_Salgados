@@ -1,8 +1,10 @@
 # Márcia Salgados — Controle de estoque e rastreabilidade
 
-Projeto acadêmico em **Flask + PostgreSQL + HTML/CSS/JavaScript + Docker Compose**, com cadastro de produtos, controle de estoque, pedidos de referência e rastreabilidade de quem movimentou os produtos.
+Projeto acadêmico em **Flask + PostgreSQL + HTML/CSS/JavaScript + Docker Compose**, com cadastro de produtos, controle de estoque, pedidos com itens e rastreabilidade de quem movimentou os produtos.
 
-> Escopo: os pedidos identificam clientes e podem ser vinculados às saídas, mas este sistema **não** faz faturamento, pagamentos ou emissão de notas fiscais. A implantação é **local**, para o computador de casa e para a apresentação. Não é um serviço pronto para ser exposto publicamente na internet.
+> Escopo: pedidos salvos baixam estoque e geram PDF/TXT comercial de pedido/orçamento. Edições ajustam diferenças; cancelamentos devolvem estoque e preservam o histórico. O sistema **não** faz faturamento, pagamentos ou emissão de notas fiscais. A implantação padrão é **local**, para o computador de casa e para a apresentação.
+
+Veja [pedidos, API, testes e atualização no PC de casa](docs/PEDIDOS.md). A recuperação de senha por e-mail permanece removida.
 
 ## Funcionalidades
 
@@ -86,7 +88,7 @@ Abra **http://localhost:8080** e entre com o e-mail e senha criados. Para verifi
 
 1. Entre como **Administrador**.
 2. Abra **Usuários** no menu. Preencha nome, e-mail, senha inicial e perfil (Administrador ou Funcionário). A senha deve ter pelo menos 8 caracteres, maiúscula, minúscula e símbolo especial; números são opcionais.
-3. Um funcionário pode consultar produtos, cadastrar pedidos de referência e registrar entradas/saídas. Não pode cadastrar/editar produtos nem administrar usuários.
+3. Um funcionário pode consultar produtos, cadastrar/editar/cancelar pedidos, baixar PDF/TXT e registrar entradas/saídas. Não pode cadastrar/editar produtos nem administrar usuários.
 4. Cada entrada/saída registra o **nome do usuário autenticado** no histórico. Registros antigos são mantidos sem autor identificado.
 5. Para trocar sua senha, use **Minha senha**. O administrador também pode redefinir senhas de outros usuários ou desativá-los.
 

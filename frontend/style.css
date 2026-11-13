@@ -581,3 +581,8 @@ html { scroll-padding-top: 155px; }
   .user-actions { flex-basis: auto; justify-content: flex-start; }
   input, select { font-size: 16px; }
 }
+/* Ações de documentos e manutenção de pedidos adaptáveis ao celular. */
+.order-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .8rem; }
+.order-actions .button { white-space: normal; }
+.order-cancelled { border-left: 5px solid #9b3131; background: #fff3f1; }
+.order-item { overflow-wrap: anywhere; }

@@ -12,6 +12,7 @@ let usuarioAtual = null;
 let resetUsuarioId = null;
 let produtosCache = [];
 let pedidosCache = [];
+let pedidoEmEdicao = null;
 let historicoCache = [];
 let editandoId = null;
 let offsetHistorico = 0;
@@ -166,6 +167,7 @@ document.getElementById("sairBtn").addEventListener("click", async () => {
   aplicarPerfil(null);
   produtosCache = [];
   pedidosCache = [];
+  limparEdicaoPedido();
   historicoCache = [];
   lista.innerHTML = "";
   document.getElementById("historicoLista").textContent = "";
@@ -225,7 +227,7 @@ function renderizarProdutos() {
         <label>Movimentar estoque</label>
         <div class="movement-grid"><select name="tipo" aria-label="Tipo de movimentação"><option value="ENTRADA">Entrada</option><option value="SAIDA">Saída</option></select><input name="quantidade" type="number" min="1" step="1" value="1" required aria-label="Quantidade"></div>
         <input name="motivo" maxlength="200" placeholder="Motivo: venda, produção..." aria-label="Motivo da movimentação">
-        <select name="pedido_id" class="order-select" aria-label="Pedido antigo vinculado" disabled><option value="">Sem pedido vinculado</option>${pedidosCache.filter(p => !p.estoque_processado).map(p => `<option value="${p.id}">#${p.id} — ${escapar(p.cliente)} (antigo)</option>`).join("")}</select>
+        <select name="pedido_id" class="order-select" aria-label="Pedido antigo vinculado" disabled><option value="">Sem pedido vinculado</option>${pedidosCache.filter(p => !p.estoque_processado && p.status !== "CANCELADO").map(p => `<option value="${p.id}">#${p.id} — ${escapar(p.cliente)} (antigo)</option>`).join("")}</select>
         <button class="button primary" type="submit">Confirmar movimentação</button><p class="movement-message" aria-live="polite"></p>
       </form>`;
     card.querySelector(".edit-product")?.addEventListener("click", () => abrirEdicao(produto));
@@ -326,8 +328,10 @@ async function carregarPedidos() {
   try {
     pedidosCache = await obterJson(await apiFetch("/pedidos"));
     document.getElementById("pedidosLista").innerHTML = pedidosCache.length
-      ? pedidosCache.map(p => `<article class="order-item"><strong>#${p.id} — ${escapar(p.cliente)}</strong><small>${escapar(p.referencia || "Sem referência")} · ${formatarData(p.criado_em)}</small>
-        ${p.estoque_processado ? `<ul>${p.itens.map(i => `<li>${escapar(i.produto_nome)}: <strong>${i.quantidade} un.</strong> · ${formatarMoeda(i.preco_unitario)}/un.</li>`).join("")}</ul><small>Saída registrada · Por ${escapar(p.usuario_nome || "Usuário não informado")}</small>` : '<small>Pedido antigo de referência · Consulte o histórico de saídas.</small>'}</article>`).join("")
+      ? pedidosCache.map(p => `<article class="order-item ${p.status === 'CANCELADO' ? 'order-cancelled' : ''}"><strong>#${p.id} — ${escapar(p.cliente)} · ${escapar(p.status)}</strong><small>${escapar(p.referencia || "Sem referência")} · ${formatarData(p.criado_em)}</small>
+        ${p.estoque_processado ? `<ul>${p.itens.map(i => `<li>${escapar(i.produto_nome)}: <strong>${i.quantidade} un.</strong> · ${formatarMoeda(i.preco_unitario)}/un. · Subtotal ${formatarMoeda(Number(i.preco_unitario) * i.quantidade)}</li>`).join("")}</ul><strong>Total: ${formatarMoeda(p.itens.reduce((s, i) => s + Number(i.preco_unitario) * i.quantidade, 0))}</strong><small>${p.status === 'CANCELADO' ? 'Cancelado · Estoque devolvido' : 'Saída registrada'} · Por ${escapar(p.usuario_nome || "Usuário não informado")}</small>
+        <div class="order-actions"><button type="button" class="button outline" data-order="ver" data-id="${p.id}">Visualizar PDF</button><button type="button" class="button outline" data-order="pdf" data-id="${p.id}">Baixar PDF</button><button type="button" class="button outline" data-order="txt" data-id="${p.id}">Baixar TXT</button>
+        ${p.status !== 'CANCELADO' ? `<button type="button" class="button outline" data-order="editar" data-id="${p.id}">Editar</button><button type="button" class="button outline" data-order="cancelar" data-id="${p.id}">Cancelar pedido</button>` : ''}</div>` : '<small>Pedido antigo sem itens detalhados · Consulte o histórico de saídas para reconciliar o estoque antes de ajustar.</small>'}</article>`).join("")
       : '<p>Nenhum pedido registrado.</p>';
     renderizarProdutos();
   } catch {
@@ -337,7 +341,7 @@ async function carregarPedidos() {
 
 function atualizarResumoPedido() {
   const total = [...document.querySelectorAll(".order-quantity")].reduce((s, el) => s + (Number(el.value) || 0), 0);
-  document.getElementById("pedidoResumo").textContent = `${total} unidade(s) · A saída será registrada ao salvar.`;
+  document.getElementById("pedidoResumo").textContent = `${total} unidade(s) · ${pedidoEmEdicao ? 'Somente diferenças de estoque serão ajustadas. Itens já registrados mantêm o preço histórico.' : 'A saída será registrada ao salvar.'}`;
 }
 
 function atualizarOpcoesItens() {
@@ -386,14 +390,79 @@ document.getElementById("pedidoForm").addEventListener("submit", async event => 
       if (ids.has(item.produto_id)) throw new Error("Selecione cada produto apenas uma vez e ajuste sua quantidade.");
       ids.add(item.produto_id);
     }
-    const resultado = await obterJson(await apiFetch("/pedidos", { method: "POST", body: JSON.stringify(dados) }));
-    document.getElementById("pedidoMensagem").textContent = `Pedido #${resultado.pedido.id} cadastrado. Saída de estoque registrada.`;
-    formPedido.reset();
-    document.getElementById("pedidoItens").replaceChildren();
-    adicionarItemPedido();
+    if (pedidoEmEdicao) dados.versao = pedidoEmEdicao.versao;
+    const resultado = await obterJson(await apiFetch(pedidoEmEdicao ? `/pedidos/${pedidoEmEdicao.id}` : "/pedidos", { method: pedidoEmEdicao ? "PUT" : "POST", body: JSON.stringify(dados) }));
+    document.getElementById("pedidoMensagem").textContent = `Pedido #${resultado.pedido.id}: ${resultado.mensagem}`;
+    limparEdicaoPedido();
     await Promise.all([carregarPedidos(), carregarProdutos(), carregarHistorico(true)]);
   } catch (error) { document.getElementById("pedidoMensagem").textContent = error.message; }
   finally { bloquearBotao(botao, false); }
+});
+
+function limparEdicaoPedido() {
+  pedidoEmEdicao = null;
+  document.getElementById("pedidoForm").reset();
+  document.getElementById("pedidoItens").replaceChildren();
+  document.getElementById("sairEdicaoPedido").hidden = true;
+  document.querySelector('#pedidoForm button[type="submit"]').textContent = "Salvar pedido e baixar estoque";
+  adicionarItemPedido();
+}
+document.getElementById("sairEdicaoPedido").addEventListener("click", limparEdicaoPedido);
+document.getElementById("pedidosLista").addEventListener("click", async event => {
+  const botao = event.target.closest("[data-order]");
+  if (!botao) return;
+  const id = Number(botao.dataset.id), acao = botao.dataset.order;
+  const mensagemPedido = document.getElementById("pedidoMensagem");
+  let janela = null;
+  if (acao === "ver") janela = window.open("about:blank", "_blank");
+  botao.disabled = true;
+  try {
+    if (["ver", "pdf", "txt"].includes(acao)) {
+      const formato = acao === "txt" ? "txt" : "pdf";
+      const resposta = await apiFetch(`/pedidos/${id}/documento.${formato}`);
+      if (!resposta.ok) await obterJson(resposta);
+      const url = URL.createObjectURL(await resposta.blob());
+      if (acao === "ver") {
+        if (!janela) throw new Error("Permita abrir uma nova aba para visualizar o PDF.");
+        janela.location.href = url;
+      } else {
+        const link = document.createElement("a");
+        link.href = url; link.download = `pedido-${id}.${formato}`;
+        document.body.appendChild(link); link.click(); link.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 120000);
+    } else if (acao === "editar") {
+      if (pedidoEmEdicao && !window.confirm("Descartar a edição atual e abrir este pedido?")) return;
+      const pedido = await obterJson(await apiFetch(`/pedidos/${id}`));
+      if (pedido.status === "CANCELADO") throw new Error("Este pedido foi cancelado. Atualize a lista.");
+      pedidoEmEdicao = pedido;
+      document.getElementById("pedidoCliente").value = pedido.cliente;
+      document.getElementById("pedidoReferencia").value = pedido.referencia || "";
+      document.getElementById("pedidoItens").replaceChildren();
+      for (const item of pedido.itens) {
+        adicionarItemPedido();
+        const row = document.getElementById("pedidoItens").lastElementChild;
+        row.querySelector("select").value = item.produto_id;
+        row.querySelector("input").value = item.quantidade;
+      }
+      document.getElementById("sairEdicaoPedido").hidden = false;
+      document.querySelector('#pedidoForm button[type="submit"]').textContent = `Salvar alterações do pedido #${id}`;
+      atualizarResumoPedido();
+      document.getElementById("pedidoCliente").focus();
+      document.getElementById("pedidoForm").scrollIntoView({ behavior: "smooth", block: "start" });
+      mensagemPedido.textContent = `Editando pedido #${id}. Produtos adicionados usam o preço atual; produtos já registrados mantêm o preço histórico.`;
+    } else if (acao === "cancelar") {
+      const pedido = pedidosCache.find(p => p.id === id);
+      if (!window.confirm(`Cancelar pedido #${id}? O estoque será devolvido e o histórico será preservado. Esta ação não pode ser desfeita.`)) return;
+      const resultado = await obterJson(await apiFetch(`/pedidos/${id}`, { method: "DELETE", body: JSON.stringify({ versao: pedido.versao }) }));
+      if (pedidoEmEdicao?.id === id) limparEdicaoPedido();
+      mensagemPedido.textContent = resultado.mensagem;
+      await Promise.all([carregarPedidos(), carregarProdutos(), carregarHistorico(true)]);
+    }
+  } catch (error) {
+    if (janela) janela.close();
+    mensagemPedido.textContent = error.message;
+  } finally { botao.disabled = false; }
 });
 
 async function carregarHistorico(reiniciar = false) {

@@ -175,3 +175,162 @@ def test_saida_manual_ainda_aceita_pedido_antigo(banco):
         'produto_id': ids[0], 'quantidade': 1, 'tipo': 'SAIDA', 'pedido_id': pedido})
     assert response.status_code == 201
     assert response.json['estoque_atual'] == 9
+
+
+def editar(client, pedido, ids, quantidades=(4, 1), versao=1):
+    return client.put(f'/pedidos/{pedido}', headers={'X-CSRF-Token': 'csrf-teste'}, json={
+        'versao': versao, 'cliente': 'Cliente atualizado', 'referencia': 'Nova entrega',
+        'itens': [{'produto_id': p, 'quantidade': q} for p, q in zip(ids, quantidades)]})
+
+
+def cancelar(client, pedido, versao):
+    return client.delete(f'/pedidos/{pedido}', headers={'X-CSRF-Token': 'csrf-teste'}, json={'versao': versao})
+
+
+def test_edicao_deltas_preco_historico_cancelamento_e_documentos(banco):
+    usuario, ids = banco
+    client = cliente(usuario)
+    pedido = enviar(client, ids).json['pedido']['id']
+    with psycopg2.connect(**modulo.DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute('UPDATE produtos SET preco=99 WHERE id=ANY(%s)', (ids,))
+    response = editar(client, pedido, ids)
+    assert response.status_code == 200
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(6,), (9,)]
+    assert consultar('SELECT tipo,quantidade FROM movimentacoes WHERE pedido_id=%s ORDER BY id', (pedido,)) == [
+        ('SAIDA', 2), ('SAIDA', 3), ('SAIDA', 2), ('ENTRADA', 2)]
+    assert all(str(i['preco_unitario']) == '5.50' for i in response.json['pedido']['itens'])
+    txt = client.get(f'/pedidos/{pedido}/documento.txt')
+    assert txt.status_code == 200
+    texto = txt.data.decode('utf-8')
+    assert 'TOTAL: R$ 27,50' in texto and 'Cliente atualizado' in texto
+    pdf = client.get(f'/pedidos/{pedido}/documento.pdf?visualizar=1')
+    assert pdf.data.startswith(b'%PDF-') and pdf.headers['Content-Disposition'].startswith('inline')
+    assert cancelar(client, pedido, 2).status_code == 200
+    assert cancelar(client, pedido, 3).status_code == 409
+    assert editar(client, pedido, ids, versao=3).status_code == 409
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(10,), (10,)]
+    detalhe = client.get(f'/pedidos/{pedido}').json
+    assert detalhe['status'] == 'CANCELADO' and len(detalhe['itens']) == 2
+    assert [e['acao'] for e in detalhe['historico']] == ['CRIACAO', 'EDICAO', 'CANCELAMENTO']
+    assert detalhe['historico'][1]['antes']['cliente'] == 'Cliente teste'
+    assert 'CANCELADO' in client.get(f'/pedidos/{pedido}/documento.txt').data.decode('utf-8')
+    # Repetir migrações depois de múltiplas movimentações de um item é seguro.
+    modulo.preparar_banco()
+
+
+def test_edicao_insuficiente_versao_remocao_e_readicao(banco):
+    usuario, ids = banco
+    client = cliente(usuario)
+    pedido = enviar(client, ids).json['pedido']['id']
+    assert editar(client, pedido, ids, (11, 1)).status_code == 409
+    assert editar(client, pedido, ids, versao=99).status_code == 409
+    assert client.get(f'/pedidos/{pedido}').json['versao'] == 1
+    assert editar(client, pedido, ids[:1], (2,)).status_code == 200
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(8,), (10,)]
+    assert editar(client, pedido, ids[::-1], (3, 2), versao=2).status_code == 200
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(8,), (7,)]
+
+
+def test_cancelamentos_simultaneos_devolvem_uma_vez(banco):
+    usuario, ids = banco
+    pedido = enviar(cliente(usuario), ids).json['pedido']['id']
+    barreira = Barrier(2)
+    def cancelar_junto(_):
+        c = cliente(usuario)
+        barreira.wait(timeout=10)
+        return cancelar(c, pedido, 1).status_code
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        assert sorted(executor.map(cancelar_junto, range(2))) == [200, 409]
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(10,), (10,)]
+
+
+def test_edicoes_concorrentes_saldos_e_versao(banco):
+    usuario, ids = banco
+    client = cliente(usuario)
+    pedidos = [enviar(client, ids, (1, 1)).json['pedido']['id'] for _ in range(2)]
+    barreira = Barrier(2)
+    def aumentar(args):
+        pid, ordem = args
+        c = cliente(usuario)
+        barreira.wait(timeout=10)
+        return editar(c, pid, ordem, (7, 7)).status_code
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        assert sorted(executor.map(aumentar, zip(pedidos, [ids, ids[::-1]]))) == [200, 409]
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(2,), (2,)]
+
+
+def test_edicao_cancelamento_rollback_sql(banco):
+    usuario, ids = banco
+    client = cliente(usuario)
+    pedido = enviar(client, ids).json['pedido']['id']
+    with psycopg2.connect(**modulo.DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""CREATE FUNCTION falha_evento_teste() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN IF NEW.pedido_id={pedido} THEN RAISE EXCEPTION 'falha'; END IF; RETURN NEW; END $$;
+                CREATE TRIGGER falha_evento_teste BEFORE INSERT ON pedido_eventos
+                FOR EACH ROW EXECUTE FUNCTION falha_evento_teste()""")
+    try:
+        assert editar(client, pedido, ids).status_code == 503
+        assert cancelar(client, pedido, 1).status_code == 503
+        assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(8,), (7,)]
+        detalhe = client.get(f'/pedidos/{pedido}').json
+        assert detalhe['versao'] == 1 and detalhe['status'] == 'ATIVO'
+        assert len(detalhe['historico']) == 1
+        assert [i['quantidade'] for i in detalhe['itens']] == [2, 3]
+        assert len(consultar('SELECT id FROM movimentacoes WHERE pedido_id=%s', (pedido,))) == 2
+    finally:
+        with psycopg2.connect(**modulo.DB_CONFIG) as conn:
+            with conn.cursor() as cur:
+                cur.execute('DROP TRIGGER falha_evento_teste ON pedido_eventos; DROP FUNCTION falha_evento_teste()')
+
+
+def test_permissoes_legado_e_formatos(banco):
+    usuario, ids = banco
+    client = cliente(usuario)
+    pedido = enviar(client, ids).json['pedido']['id']
+    assert modulo.app.test_client().get(f'/pedidos/{pedido}/documento.pdf').status_code == 401
+    assert client.put(f'/pedidos/{pedido}', json={}).status_code == 403
+    assert client.delete(f'/pedidos/{pedido}', json={}).status_code == 403
+    assert client.get(f'/pedidos/{pedido}/documento.exe').status_code == 400
+    assert client.get('/pedidos/2147483647').status_code == 404
+    with psycopg2.connect(**modulo.DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO pedidos(cliente) VALUES ('Legado') RETURNING id")
+            legado = cur.fetchone()[0]
+    assert cancelar(client, legado, 1).status_code == 409
+    assert editar(client, legado, ids).status_code == 409
+    assert client.get(f'/pedidos/{legado}/documento.pdf').status_code == 409
+
+
+@pytest.mark.parametrize('segunda_acao', ['editar', 'cancelar'])
+def test_mesmo_pedido_edicoes_ou_cancelamento_concorrentes(banco, segunda_acao):
+    usuario, ids = banco
+    pedido = enviar(cliente(usuario), ids).json['pedido']['id']
+    barreira = Barrier(2)
+    def agir(indice):
+        c = cliente(usuario)
+        barreira.wait(timeout=10)
+        if indice == 1 and segunda_acao == 'cancelar':
+            return cancelar(c, pedido, 1).status_code
+        return editar(c, pedido, ids, (4, 1)).status_code
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        assert sorted(executor.map(agir, range(2))) == [200, 409]
+    detalhe = cliente(usuario).get(f'/pedidos/{pedido}').json
+    assert detalhe['versao'] == 2 and len(detalhe['historico']) == 2
+    esperado = [(10,), (10,)] if detalhe['status'] == 'CANCELADO' else [(6,), (9,)]
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == esperado
+
+
+def test_produto_adicionado_usa_preco_atual_e_edicao_sem_delta(banco):
+    usuario, ids = banco
+    client = cliente(usuario)
+    pedido = enviar(client, ids[:1], (2,)).json['pedido']['id']
+    with psycopg2.connect(**modulo.DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute('UPDATE produtos SET preco=9.99 WHERE id=ANY(%s)', (ids,))
+    assert editar(client, pedido, ids, (2, 3)).status_code == 200
+    itens = client.get(f'/pedidos/{pedido}').json['itens']
+    assert [i['preco_unitario'] for i in itens] == ['5.50', '9.99']
+    assert editar(client, pedido, ids, (2, 3), versao=2).status_code == 200
+    assert len(consultar('SELECT id FROM movimentacoes WHERE pedido_id=%s', (pedido,))) == 2
