@@ -20,7 +20,7 @@ Mostrar as pastas: frontend HTML/CSS/JavaScript, backend Flask, database Postgre
 
 ## 3. Acesso
 
-Abrir o painel e entrar com a conta fictícia criada pelo administrador. Explicar que as senhas de usuários ficam no PostgreSQL como hashes Argon2id; o `.env` contém os segredos da infraestrutura. Mostrar o indicador de saúde, que consulta a API.
+Abrir o painel, entrar com a senha de demonstração. Explicar que ela fica configurada fora do código em `.env`, não no GitHub. Mostrar o indicador de saúde, que consulta a API.
 
 ## 4. Cadastro e busca
 
@@ -32,7 +32,7 @@ Registrar 10 unidades do produto, motivo "Nova produção". Verificar o novo sal
 
 ## 6. Pedido e saída de estoque
 
-Cadastrar um pedido para o cliente fictício "Posto Central", selecionar o produto e informar 4 unidades. Adicionar um segundo produto, se disponível. Salvar e mostrar a baixa automática, os itens do pedido e as saídas no histórico com autor e número do pedido. Não registrar outra saída manual para essa entrega. O sistema não é um módulo financeiro.
+Cadastrar um **pedido de referência**, por exemplo cliente "Posto Central". Na ficha do produto, selecionar Saída, informar 4 unidades e vincular o pedido. Mostrar a movimentação no histórico com o identificador do pedido. Esclarecer: o sistema ainda **não é um módulo financeiro de pedidos**, nem processa automaticamente um carrinho com vários itens.
 
 ## 7. Proteções e rastreabilidade
 
@@ -50,6 +50,6 @@ SELECT * FROM movimentacoes ORDER BY id DESC;
 
 ## 8. Conclusão
 
-Destacar ganhos de organização, histórico, validação e base para próximas automações. Como futuras melhorias, citar relatórios em PDF, envio de e-mail, relatórios consolidados por pedido e validação da implantação pública. Os perfis ADMIN e FUNCIONARIO já estão implementados.
+Destacar ganhos de organização, histórico, validação e base para próximas automações. Como futuras melhorias, citar relatórios em PDF, envio de e-mail, relatórios consolidados por pedido, perfis de usuário e implantação com autenticação mais robusta.
 
 **Nota de precisão:** este documento é roteiro; não é evidência de que Docker, banco ou testes ponta a ponta foram executados. Ajustar as falas conforme o resultado real da demonstração.

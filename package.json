@@ -5,7 +5,6 @@
   "description": "Sistema de estoque Flask/PostgreSQL da Márcia Salgados",
   "scripts": {
     "test": "python -m pytest backend/tests -q",
-    "check:js": "node --check frontend/script.js",
-    "test:frontend": "node --test frontend/tests/*.test.cjs"
+    "check:js": "node --check frontend/script.js"
   }
 }

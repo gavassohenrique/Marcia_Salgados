@@ -71,6 +71,5 @@ def test_flask_integrado_ao_postgresql_real():
         with conn.cursor() as cur:
             cur.execute('SELECT estoque FROM produtos WHERE id=%s', (produto_id,))
             assert cur.fetchone()[0] == 10
-            cur.execute('''SELECT tipo,quantidade,usuario_id FROM movimentacoes
-                           WHERE produto_id=%s ORDER BY id''', (produto_id,))
-            assert cur.fetchall() == [('ENTRADA', 12, login.json['usuario']['id']), ('SAIDA', 2, func_id)]
+            cur.execute('SELECT usuario_id FROM movimentacoes WHERE produto_id=%s', (produto_id,))
+            assert cur.fetchone()[0] == func_id

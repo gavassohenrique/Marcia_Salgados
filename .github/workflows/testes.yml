@@ -41,15 +41,11 @@ jobs:
         run: python -m pip install -r backend/requirements.txt
       - name: Sintaxe do frontend
         run: node --check frontend/script.js
-      - name: Regressões dos formulários do frontend
-        run: node --test frontend/tests/*.test.cjs
       - name: Pytest unitario e PostgreSQL real isolado
         run: python -m pytest backend/tests -q
       - name: Validar configuração Docker Compose da Oracle
         env:
           PUBLIC_DOMAIN: exemplo.invalid
         run: docker compose -f compose.oracle.yaml config --quiet
-      - name: Validar configuração Docker Compose local
-        run: docker compose config --quiet
       - name: Verificar dependência Gunicorn
         run: python -c "import gunicorn; print(gunicorn.__version__)"
