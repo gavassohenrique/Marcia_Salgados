@@ -68,6 +68,7 @@ const server = http.createServer((req, res) => {
     assert.equal(registro.tipo, 'ORCAMENTO');
     assert.match(await page.locator('#pedidosLista').innerText(), /AGUARDANDO CONFIRMAÇÃO/);
     await page.getByRole('button', { name: 'Editar', exact: true }).click();
+    await page.getByRole('button', { name: 'Salvar alterações: orçamento #1' }).waitFor();
     await page.locator('.order-quantity').fill('3');
     await page.getByRole('button', { name: 'Salvar alterações: orçamento #1' }).click();
     await page.waitForFunction(() => document.getElementById('pedidoMensagem').textContent.includes('atualizado'));
