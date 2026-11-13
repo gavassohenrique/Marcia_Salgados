@@ -43,6 +43,9 @@ function formatarData(valor) {
 }
 
 function mostrarLogin(mensagemErro = "") {
+  document.querySelectorAll("dialog[open]").forEach(dialog => dialog.close());
+  aplicarPerfil(null);
+  document.querySelector("main").inert = true;
   loginOverlay.hidden = false;
   document.getElementById("sairBtn").hidden = true;
   document.getElementById("alterarSenhaBtn").hidden = true;
@@ -50,6 +53,7 @@ function mostrarLogin(mensagemErro = "") {
   document.getElementById("loginMensagem").textContent = mensagemErro;
 }
 function ocultarLogin() {
+  document.querySelector("main").inert = false;
   loginOverlay.hidden = true;
   document.getElementById("sairBtn").hidden = false;
   document.getElementById("alterarSenhaBtn").hidden = false;
@@ -115,6 +119,10 @@ async function inicializar() {
   try {
     const response = await fetch(`${API}/auth/status`, { cache: "no-store" });
     const estado = await obterJson(response);
+    if (tokenRecuperacao) {
+      mostrarLogin();
+      return;
+    }
     if (!estado.configurado) {
       mostrarLogin("Configure FLASK_SECRET_KEY no arquivo .env antes de iniciar.");
     } else if (estado.primeiro_acesso) {
@@ -161,7 +169,13 @@ document.getElementById("loginForm").addEventListener("submit", async event => {
 });
 
 document.getElementById("sairBtn").addEventListener("click", async () => {
-  try { await apiFetch("/auth/logout", { method: "POST" }); } catch { /* sessão local também termina */ }
+  try {
+    const response = await apiFetch("/auth/logout", { method: "POST" });
+    if (response.status !== 401) await obterJson(response);
+  } catch {
+    alert("Não foi possível encerrar a sessão no servidor. Verifique a conexão e tente sair novamente.");
+    return;
+  }
   csrfToken = "";
   aplicarPerfil(null);
   produtosCache = [];
@@ -202,7 +216,7 @@ function renderizarProdutos() {
   const filtrados = produtosCache.filter(item => {
     const baixo = Number(item.estoque) <= Number(item.estoque_minimo);
     return item.nome.toLocaleLowerCase("pt-BR").includes(termo) &&
-      (filtro === "todos" || (filtro === "baixo" && baixo) || (filtro === "disponivel" && !baixo));
+      (filtro === "todos" || (filtro === "baixo" && baixo) || (filtro === "disponivel" && Number(item.estoque) > 0));
   });
   statusElement.textContent = `${filtrados.length} de ${produtosCache.length} produto(s)`;
   if (!filtrados.length) {
@@ -315,7 +329,7 @@ form.addEventListener("submit", async event => {
     mensagem.textContent = "Produto cadastrado com sucesso!";
     mensagem.className = "success";
     form.reset();
-    await carregarProdutos();
+    await Promise.all([carregarProdutos(), carregarHistorico(true)]);
   } catch (error) {
     mensagem.textContent = error.message;
     mensagem.className = "error";
@@ -500,15 +514,16 @@ async function carregarUsuarios() {
 
 document.getElementById("usuarioForm").addEventListener("submit", async event => {
   event.preventDefault();
-  const botao = event.currentTarget.querySelector('button[type="submit"]');
+  const formulario = event.currentTarget;
+  const botao = formulario.querySelector('button[type="submit"]');
   const aviso = document.getElementById("usuarioMensagem");
-  const dados = Object.fromEntries(new FormData(event.currentTarget));
+  const dados = Object.fromEntries(new FormData(formulario));
   const erroSenha = validarNovaSenha(dados.senha);
   if (erroSenha) { aviso.textContent = erroSenha; aviso.className = "error"; return; }
   bloquearBotao(botao, true);
   try {
     await obterJson(await apiFetch("/usuarios", { method: "POST", body: JSON.stringify(dados) }));
-    event.currentTarget.reset();
+    formulario.reset();
     aviso.textContent = "Usuário criado. Ele já pode entrar com seu e-mail e senha.";
     aviso.className = "success";
     await carregarUsuarios();
@@ -524,18 +539,19 @@ document.getElementById("alterarSenhaBtn").addEventListener("click", () => {
 document.getElementById("fecharSenhaDialog").addEventListener("click", () => document.getElementById("alterarSenhaDialog").close());
 document.getElementById("alterarSenhaForm").addEventListener("submit", async event => {
   event.preventDefault();
+  const formulario = event.currentTarget;
   const aviso = document.getElementById("alterarSenhaMensagem");
   const senha_atual = document.getElementById("senhaAtual").value;
   const nova_senha = document.getElementById("senhaNova").value;
   if (nova_senha !== document.getElementById("senhaConfirmacao").value) { aviso.textContent = "As senhas não coincidem."; return; }
   const erroSenha = validarNovaSenha(nova_senha);
   if (erroSenha) { aviso.textContent = erroSenha; return; }
-  const botao = event.currentTarget.querySelector('button[type="submit"]');
+  const botao = formulario.querySelector('button[type="submit"]');
   bloquearBotao(botao, true);
   try {
     const resultado = await obterJson(await apiFetch("/auth/alterar-senha", { method: "POST", body: JSON.stringify({ senha_atual, nova_senha }) }));
     document.getElementById("alterarSenhaDialog").close();
-    event.currentTarget.reset();
+    formulario.reset();
     alert(resultado.mensagem);
   } catch (error) { aviso.textContent = error.message; }
   finally { bloquearBotao(botao, false); }
@@ -543,7 +559,8 @@ document.getElementById("alterarSenhaForm").addEventListener("submit", async eve
 document.getElementById("fecharResetDialog").addEventListener("click", () => document.getElementById("resetSenhaDialog").close());
 document.getElementById("resetSenhaForm").addEventListener("submit", async event => {
   event.preventDefault();
-  const botao = event.currentTarget.querySelector('button[type="submit"]');
+  const formulario = event.currentTarget;
+  const botao = formulario.querySelector('button[type="submit"]');
   const erroSenha = validarNovaSenha(document.getElementById("resetSenha").value);
   if (erroSenha) { document.getElementById("resetMensagem").textContent = erroSenha; return; }
   bloquearBotao(botao, true);
@@ -551,7 +568,7 @@ document.getElementById("resetSenhaForm").addEventListener("submit", async event
     await obterJson(await apiFetch(`/usuarios/${resetUsuarioId}/redefinir-senha`, { method: "POST",
       body: JSON.stringify({ nova_senha: document.getElementById("resetSenha").value }) }));
     document.getElementById("resetSenhaDialog").close();
-    event.currentTarget.reset();
+    formulario.reset();
     if (resetUsuarioId === usuarioAtual?.id) { aplicarPerfil(null); mostrarLogin("Entre novamente com a nova senha."); }
     else await carregarUsuarios();
   } catch (error) { document.getElementById("resetMensagem").textContent = error.message; }
@@ -559,3 +576,75 @@ document.getElementById("resetSenhaForm").addEventListener("submit", async event
 });
 
 inicializar();
+
+// Tokens ficam somente em memória, sem localStorage ou parâmetros na URL.
+let tokenRecuperacao = "";
+function painelAutenticacao(id) {
+  for (const painel of ["loginForm", "recuperarForm", "redefinirForm"]) {
+    document.getElementById(painel).hidden = painel !== id;
+  }
+  document.querySelector(`#${id} h2`).focus();
+}
+document.querySelectorAll("[data-password]").forEach(botao => {
+  botao.addEventListener("click", () => {
+    const campo = document.getElementById(botao.dataset.password);
+    const visivel = campo.type === "password";
+    campo.type = visivel ? "text" : "password";
+    botao.textContent = visivel ? "Ocultar senha" : "Mostrar senha";
+    botao.setAttribute("aria-label", botao.textContent);
+    botao.setAttribute("aria-pressed", String(visivel));
+  });
+});
+document.getElementById("esqueciSenha").addEventListener("click", () => {
+  document.getElementById("recuperarEmail").value = document.getElementById("loginEmail").value;
+  painelAutenticacao("recuperarForm");
+  document.getElementById("recuperarEmail").focus();
+});
+document.querySelectorAll(".voltar-login").forEach(botao => botao.addEventListener("click", () => {
+  tokenRecuperacao = "";
+  document.getElementById("redefinirForm").reset();
+  painelAutenticacao("loginForm");
+}));
+for (const [formId, rota, mensagemId] of [
+  ["recuperarForm", "/auth/recuperar-senha", "recuperarMensagem"],
+  ["redefinirForm", "/auth/redefinir-senha", "redefinirMensagem"]
+]) {
+  document.getElementById(formId).addEventListener("submit", async event => {
+    event.preventDefault();
+    const botao = event.currentTarget.querySelector("button[type=submit]");
+    const mensagem = document.getElementById(mensagemId);
+    const redefinir = formId === "redefinirForm";
+    const senha = document.getElementById("novaSenhaRecuperacao").value;
+    const confirmacao = document.getElementById("confirmarSenhaRecuperacao").value;
+    if (redefinir && senha !== confirmacao) {
+      mensagem.textContent = "As senhas não coincidem.";
+      document.getElementById("confirmarSenhaRecuperacao").focus();
+      return;
+    }
+    bloquearBotao(botao, true);
+    mensagem.textContent = "Processando solicitação...";
+    try {
+      const resultado = await obterJson(await fetch(`${API}${rota}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(redefinir ? {token: tokenRecuperacao, nova_senha: senha, confirmacao}
+          : {email: document.getElementById("recuperarEmail").value.trim()})
+      }));
+      mensagem.textContent = resultado.mensagem;
+      if (redefinir) {
+        tokenRecuperacao = "";
+        document.getElementById(formId).reset();
+        csrfToken = "";
+        aplicarPerfil(null);
+        painelAutenticacao("loginForm");
+        mostrarLogin(resultado.mensagem);
+      }
+    } catch (error) { mensagem.textContent = error.message; }
+    finally { bloquearBotao(botao, false); }
+  });
+}
+if (location.hash.startsWith("#redefinir-senha=")) {
+  tokenRecuperacao = location.hash.slice("#redefinir-senha=".length);
+  history.replaceState(null, "", location.pathname + location.search);
+  painelAutenticacao("redefinirForm");
+}

@@ -1,4 +1,5 @@
 """API de estoque e rastreabilidade da Márcia Salgados."""
+import sys
 import hmac
 import re
 import os
@@ -174,6 +175,7 @@ def preparar_banco():
                 with conn.cursor() as cur:
                     cur.execute(sql)
                     cur.execute((Path(__file__).parent / "migrations" / "002_pedido_itens.sql").read_text(encoding="utf-8"))
+                    cur.execute((Path(__file__).parent / "migrations" / "003_recuperacao_senha.sql").read_text(encoding="utf-8"))
             return
         except psycopg2.Error:
             if tentativa == 9:
@@ -271,7 +273,7 @@ def exige_admin(func):
 
 @app.before_request
 def proteger_api():
-    if request.path in ("/", "/health", "/auth/status", "/auth/login"):
+    if request.path in ("/", "/health", "/auth/status", "/auth/login", "/auth/recuperar-senha", "/auth/redefinir-senha"):
         return None
     if not app.config.get("SECRET_KEY"):
         return json_error("Chave de sessão não configurada no servidor.", 503)
@@ -580,6 +582,11 @@ def cadastrar_produto():
                         VALUES (%s,%s,%s,%s)
                         RETURNING id, nome, preco, estoque, estoque_minimo""", valores)
             produto = cur.fetchone()
+            if produto["estoque"] > 0:
+                cur.execute("""INSERT INTO movimentacoes (produto_id, tipo, quantidade,
+                               estoque_anterior, estoque_posterior, motivo, usuario_id)
+                               VALUES (%s,'ENTRADA',%s,0,%s,'Estoque inicial',%s)""",
+                            (produto["id"], produto["estoque"], produto["estoque"], g.usuario["id"]))
         conn.commit()
         return jsonify({"mensagem": "Produto cadastrado com sucesso.", "produto": produto}), 201
     except psycopg2.Error:
@@ -818,6 +825,9 @@ def rota_nao_encontrada(_):
 def metodo_nao_permitido(_):
     return json_error("Método HTTP não permitido para esta rota.", 405)
 
+
+from recovery import register_recovery
+register_recovery(app, sys.modules[__name__])
 
 if __name__ == "__main__":
     validar_configuracao()

@@ -25,6 +25,13 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Crie .env com POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-appdb}
       FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?Crie .env com FLASK_SECRET_KEY}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
       COOKIE_SECURE: "false"  # true quando usado com HTTPS
     ports:
       - "127.0.0.1:3000:3000"

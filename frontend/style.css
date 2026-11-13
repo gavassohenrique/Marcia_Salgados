@@ -402,6 +402,7 @@ input:focus, select:focus { border-color: var(--wine-700); box-shadow: 0 0 0 4px
 .history-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 20px; padding: 17px 20px; border: 1px solid transparent; border-radius: 14px; background: var(--white); }
 .history-item:hover { border-color: #dbcdd0; }
 .history-product { display: flex; align-items: center; gap: 13px; }
+.history-product, .history-product > div { min-width: 0; overflow-wrap: anywhere; }
 .history-symbol { display: grid; width: 40px; height: 40px; flex: 0 0 auto; place-items: center; border-radius: 12px; background: var(--cream-100); color: var(--wine-700); font-weight: 700; }
 .history-item strong { font-size: 15px; }
 .history-item p, .history-item small { color: var(--muted); font-size: 13px; }
@@ -581,3 +582,10 @@ html { scroll-padding-top: 155px; }
   .user-actions { flex-basis: auto; justify-content: flex-start; }
   input, select { font-size: 16px; }
 }
+
+/* Autenticação acessível também em telas estreitas e com zoom. */
+.login-panel { min-width: 0; max-height: none; margin: auto; overflow-wrap: anywhere; }
+.login-panel input { min-width: 0; width: 100%; }
+.login-panel button { min-height: 44px; white-space: normal; }
+.login-panel button:focus-visible { outline: 3px solid #146a9b; outline-offset: 3px; }
+.login-overlay { padding: 16px; align-items: safe center; }

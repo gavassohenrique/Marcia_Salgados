@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Sistema de gestão de produtos e controle de estoque da Márcia Salgados.">
   <title>Márcia Salgados | Controle de Estoque</title>
-  <link rel="stylesheet" href="style.css?v=pedidos-20261113-2">
+  <link rel="stylesheet" href="style.css?v=auth-20261113-3">
 </head>
 <body>
 <header class="header">
@@ -19,7 +19,7 @@
   <nav aria-label="Navegação principal">
     <a href="#inicio">Visão geral</a>
     <a href="#produtos">Produtos</a>
-    <a href="#cadastro">Novo produto</a>
+    <a href="#cadastro" class="admin-only">Novo produto</a>
     <a href="#historico">Movimentações</a>
     <a href="#pedidos">Pedidos</a>
     <a id="usuariosNav" href="#usuarios" hidden>Usuários</a>
@@ -31,7 +31,7 @@
     <button id="sairBtn" class="button outline logout-button" type="button" hidden>Sair</button>
   </div>
 </header>
-<main>
+<main inert>
 <section id="inicio" class="hero">
   <div class="hero-content">
     <span class="eyebrow eyebrow-light">CONTROLE DE ESTOQUE</span>
@@ -227,10 +227,33 @@
     <input id="loginEmail" name="email" type="email" autocomplete="username" required>
     <label for="loginSenha">Senha</label>
     <input id="loginSenha" name="senha" type="password" autocomplete="current-password" required>
+    <button class="button outline" type="button" data-password="loginSenha" aria-label="Mostrar senha" aria-controls="loginSenha" aria-pressed="false">Mostrar senha</button>
     <button class="button primary" type="submit">Entrar no sistema</button>
+    <button id="esqueciSenha" class="button outline" type="button">Esqueci minha senha</button>
     <p id="loginMensagem" role="alert" aria-live="polite"></p>
   </form>
+  <form id="recuperarForm" class="login-panel" hidden>
+    <h2 tabindex="-1">Recuperar conta</h2>
+    <p>Informe seu e-mail para receber um link de uso único, válido por 20 minutos.</p>
+    <label for="recuperarEmail">E-mail cadastrado</label>
+    <input id="recuperarEmail" type="email" maxlength="254" autocomplete="email" required>
+    <button class="button primary" type="submit">Solicitar recuperação</button>
+    <p id="recuperarMensagem" role="status" aria-live="polite"></p>
+    <button class="button outline voltar-login" type="button">Voltar ao login</button>
+  </form>
+  <form id="redefinirForm" class="login-panel" hidden>
+    <h2 tabindex="-1">Crie uma nova senha</h2>
+    <p id="politicaRecuperacao">Use de 8 a 128 caracteres, com maiúscula, minúscula e um símbolo (ex.: !, @ ou #).</p>
+    <label for="novaSenhaRecuperacao">Nova senha</label>
+    <input id="novaSenhaRecuperacao" type="password" minlength="8" maxlength="128" autocomplete="new-password" aria-describedby="politicaRecuperacao" required>
+    <button class="button outline" type="button" data-password="novaSenhaRecuperacao" aria-label="Mostrar senha" aria-controls="novaSenhaRecuperacao" aria-pressed="false">Mostrar senha</button>
+    <label for="confirmarSenhaRecuperacao">Confirme a nova senha</label>
+    <input id="confirmarSenhaRecuperacao" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+    <button class="button primary" type="submit">Salvar nova senha</button>
+    <p id="redefinirMensagem" role="alert" aria-live="polite"></p>
+    <button class="button outline voltar-login" type="button">Voltar ao login</button>
+  </form>
 </div>
-<script src="script.js?v=pedidos-20261113-2"></script>
+<script src="script.js?v=auth-20261113-3"></script>
 </body>
 </html>
