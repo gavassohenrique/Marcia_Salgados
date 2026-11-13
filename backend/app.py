@@ -580,6 +580,11 @@ def cadastrar_produto():
                         VALUES (%s,%s,%s,%s)
                         RETURNING id, nome, preco, estoque, estoque_minimo""", valores)
             produto = cur.fetchone()
+            if produto["estoque"] > 0:
+                cur.execute("""INSERT INTO movimentacoes (produto_id, tipo, quantidade,
+                               estoque_anterior, estoque_posterior, motivo, usuario_id)
+                               VALUES (%s,'ENTRADA',%s,0,%s,'Estoque inicial',%s)""",
+                            (produto["id"], produto["estoque"], produto["estoque"], g.usuario["id"]))
         conn.commit()
         return jsonify({"mensagem": "Produto cadastrado com sucesso.", "produto": produto}), 201
     except psycopg2.Error:

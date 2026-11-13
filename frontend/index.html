@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Sistema de gestão de produtos e controle de estoque da Márcia Salgados.">
   <title>Márcia Salgados | Controle de Estoque</title>
-  <link rel="stylesheet" href="style.css?v=pedidos-20261113-2">
+  <link rel="stylesheet" href="style.css?v=auditoria-20261113-3">
 </head>
 <body>
 <header class="header">
@@ -19,7 +19,7 @@
   <nav aria-label="Navegação principal">
     <a href="#inicio">Visão geral</a>
     <a href="#produtos">Produtos</a>
-    <a href="#cadastro">Novo produto</a>
+    <a href="#cadastro" class="admin-only">Novo produto</a>
     <a href="#historico">Movimentações</a>
     <a href="#pedidos">Pedidos</a>
     <a id="usuariosNav" href="#usuarios" hidden>Usuários</a>
@@ -31,7 +31,7 @@
     <button id="sairBtn" class="button outline logout-button" type="button" hidden>Sair</button>
   </div>
 </header>
-<main>
+<main inert>
 <section id="inicio" class="hero">
   <div class="hero-content">
     <span class="eyebrow eyebrow-light">CONTROLE DE ESTOQUE</span>
@@ -231,6 +231,6 @@
     <p id="loginMensagem" role="alert" aria-live="polite"></p>
   </form>
 </div>
-<script src="script.js?v=pedidos-20261113-2"></script>
+<script src="script.js?v=auditoria-20261113-3"></script>
 </body>
 </html>

@@ -1,8 +1,8 @@
 # Márcia Salgados — Controle de estoque e rastreabilidade
 
-Projeto acadêmico em **Flask + PostgreSQL + HTML/CSS/JavaScript + Docker Compose**, com cadastro de produtos, controle de estoque, pedidos de referência e rastreabilidade de quem movimentou os produtos.
+Projeto acadêmico em **Flask + PostgreSQL + HTML/CSS/JavaScript + Docker Compose**, com cadastro de produtos, pedidos com itens e quantidades, baixa automática e rastreabilidade de quem movimentou os produtos.
 
-> Escopo: os pedidos identificam clientes e podem ser vinculados às saídas, mas este sistema **não** faz faturamento, pagamentos ou emissão de notas fiscais. A implantação é **local**, para o computador de casa e para a apresentação. Não é um serviço pronto para ser exposto publicamente na internet.
+> Escopo: salvar um pedido com itens registra as saídas de estoque na mesma transação. Este sistema não faz faturamento, pagamentos ou emissão de notas fiscais. O Compose padrão é local; a configuração Oracle é uma base de implantação que exige validação no servidor.
 
 ## Funcionalidades
 
@@ -11,6 +11,8 @@ Projeto acadêmico em **Flask + PostgreSQL + HTML/CSS/JavaScript + Docker Compos
 - Alteração da própria senha. Mudanças de senha, perfil ou desativação invalidam as sessões anteriores do usuário.
 - Proteção CSRF, cookie de sessão HttpOnly/SameSite, bloqueio temporário após cinco senhas erradas para uma conta, e respostas de erro em JSON.
 - Cadastro e edição de produtos; filtro por estoque mínimo; entradas e saídas transacionais usando `SELECT ... FOR UPDATE`.
+- Pedidos com 1 a 100 produtos distintos, quantidades positivas, nomes/preços preservados e baixa transacional. Veja [regras e limites](docs/PEDIDOS.md).
+- Produtos novos com saldo inicial positivo geram uma entrada auditada. Saldos históricos não são reconstruídos nem atribuídos retroativamente.
 - Histórico com identificação de quem realizou cada movimentação; registros anteriores à implantação do recurso continuam preservados, sem atribuição de usuário.
 - Integração local com Nginx no frontend, Flask no backend e PostgreSQL, sem expor o banco na rede.
 
@@ -64,7 +66,7 @@ $b = New-Object byte[] 32
 Depois de salvar `.env`, verifique e suba os serviços:
 
 ```powershell
-docker compose config
+docker compose config --quiet
 docker compose up -d --build
 docker compose ps
 ```
@@ -86,7 +88,7 @@ Abra **http://localhost:8080** e entre com o e-mail e senha criados. Para verifi
 
 1. Entre como **Administrador**.
 2. Abra **Usuários** no menu. Preencha nome, e-mail, senha inicial e perfil (Administrador ou Funcionário). A senha deve ter pelo menos 8 caracteres, maiúscula, minúscula e símbolo especial; números são opcionais.
-3. Um funcionário pode consultar produtos, cadastrar pedidos de referência e registrar entradas/saídas. Não pode cadastrar/editar produtos nem administrar usuários.
+3. Um funcionário pode consultar produtos, salvar pedidos com itens e registrar entradas/saídas. O pedido já baixa o estoque; não registre outra saída para a mesma entrega. Não pode cadastrar/editar produtos nem administrar usuários.
 4. Cada entrada/saída registra o **nome do usuário autenticado** no histórico. Registros antigos são mantidos sem autor identificado.
 5. Para trocar sua senha, use **Minha senha**. O administrador também pode redefinir senhas de outros usuários ou desativá-los.
 
@@ -128,6 +130,7 @@ Testes de unidade/mocks de banco (em ambiente com Python e dependências instala
 python -m pip install -r backend/requirements.txt
 python -m pytest backend/tests -q
 node --check frontend/script.js
+node --test frontend/tests/*.test.cjs
 ```
 
 Para verificar e testar a aplicação completa, use Docker/PostgreSQL reais, depois confira no navegador login, permissões, cadastro, estoque, histórico, alteração de senha e invalidação de sessões. Os testes Python com mocks **não substituem** testes de integração com PostgreSQL real.

@@ -1,5 +1,7 @@
 # Relatório de Análise do Estado Atual — Marcia Salgados
 
+> Registro histórico da etapa inicial. As referências abaixo a branches/PRs e funcionalidades pendentes não representam o estado atual. Consulte `docs/AUDITORIA-2026-11-13.md` e `docs/PEDIDOS.md` para a revisão atual; pedidos com itens, baixa automática e perfis de usuário já foram implementados.
+
 ## 1. Situação atual do projeto
 
 O projeto Marcia Salgados encontra-se em uma etapa funcional avançada. A funcionalidade principal de controle de estoque já foi desenvolvida e integrada à branch `main`.

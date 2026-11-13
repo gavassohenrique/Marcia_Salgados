@@ -1,5 +1,7 @@
 # Verificações e limites — autenticação por usuários (12/11/2026)
 
+> Registro histórico. Para as verificações de 13/11/2026 com Docker e PostgreSQL reais, correções, testes de frontend e limites atuais, veja [a auditoria atual](docs/AUDITORIA-2026-11-13.md). As restrições de ambiente abaixo se referem à execução de 12/11, não à auditoria posterior.
+
 ## Executados neste ambiente
 
 - Arquivos Python compilados/analisados sintaticamente via `py_compile` e `ast`.

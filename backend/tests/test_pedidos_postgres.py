@@ -175,3 +175,58 @@ def test_saida_manual_ainda_aceita_pedido_antigo(banco):
         'produto_id': ids[0], 'quantidade': 1, 'tipo': 'SAIDA', 'pedido_id': pedido})
     assert response.status_code == 201
     assert response.json['estoque_atual'] == 9
+
+
+@pytest.mark.parametrize('saldo', [0, 12])
+def test_cadastro_de_produto_audita_somente_saldo_inicial_positivo(banco, saldo):
+    usuario, _ = banco
+    with psycopg2.connect(**modulo.DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE usuarios SET perfil='ADMIN' WHERE id=%s", (usuario,))
+    response = cliente(usuario).post('/produtos', headers={'X-CSRF-Token': 'csrf-teste'}, json={
+        'nome': 'Produto auditado', 'preco': '4.50', 'estoque': saldo})
+    assert response.status_code == 201
+    produto = response.json['produto']['id']
+    movimentos = consultar('''SELECT tipo,quantidade,estoque_anterior,estoque_posterior,
+                               usuario_id,motivo FROM movimentacoes WHERE produto_id=%s''', (produto,))
+    assert movimentos == ([('ENTRADA', saldo, 0, saldo, usuario, 'Estoque inicial')] if saldo else [])
+
+
+def test_troca_e_reset_de_senha_revogam_sessoes_reais(banco):
+    usuario, _ = banco
+    email, senha = f'{uuid4()}@test.example', 'SenhaAnterior!'
+    with psycopg2.connect(**modulo.DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE usuarios SET email=%s,senha_hash=%s,perfil='ADMIN' WHERE id=%s",
+                        (email, modulo.hash_senha(senha), usuario))
+    a, b = modulo.app.test_client(), modulo.app.test_client()
+    ha = {'X-CSRF-Token': a.post('/auth/login', json={'email': email, 'senha': senha}).json['csrf']}
+    assert b.post('/auth/login', json={'email': email, 'senha': senha}).status_code == 200
+    assert a.post('/auth/alterar-senha', headers=ha, json={
+        'senha_atual': senha, 'nova_senha': 'NovaSenhaTeste!'}).status_code == 200
+    assert a.get('/produtos').status_code == 200
+    assert b.get('/produtos').status_code == 401
+    assert b.post('/auth/login', json={'email': email, 'senha': senha}).status_code == 401
+    assert b.post('/auth/login', json={'email': email, 'senha': 'NovaSenhaTeste!'}).status_code == 200
+    assert a.post(f'/usuarios/{usuario}/redefinir-senha', headers=ha,
+                  json={'nova_senha': 'SenhaRedefinida!'}).status_code == 200
+    assert a.get('/produtos').status_code == b.get('/produtos').status_code == 401
+    assert a.post('/auth/login', json={'email': email, 'senha': 'SenhaRedefinida!'}).status_code == 200
+
+
+def test_bloqueio_apos_cinco_falhas_e_liberacao_apos_prazo(banco):
+    usuario, _ = banco
+    email, senha = f'{uuid4()}@test.example', 'SenhaTeste!'
+    with psycopg2.connect(**modulo.DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute('UPDATE usuarios SET email=%s,senha_hash=%s WHERE id=%s',
+                        (email, modulo.hash_senha(senha), usuario))
+    client = modulo.app.test_client()
+    for _ in range(5):
+        assert client.post('/auth/login', json={'email': email, 'senha': 'errada'}).status_code == 401
+    assert client.post('/auth/login', json={'email': email, 'senha': senha}).status_code == 401
+    with psycopg2.connect(**modulo.DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE usuarios SET bloqueado_ate=NOW()-INTERVAL '1 second' WHERE id=%s", (usuario,))
+    assert client.post('/auth/login', json={'email': email, 'senha': senha}).status_code == 200
+    assert consultar('SELECT tentativas_falhas,bloqueado_ate FROM usuarios WHERE id=%s', (usuario,)) == [(0, None)]
