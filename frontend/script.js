@@ -170,6 +170,10 @@ document.getElementById("sairBtn").addEventListener("click", async () => {
   lista.innerHTML = "";
   document.getElementById("historicoLista").textContent = "";
   document.getElementById("pedidosLista").textContent = "";
+  document.getElementById("pedidoForm").reset();
+  document.getElementById("pedidoItens").replaceChildren();
+  document.getElementById("pedidoMensagem").textContent = "";
+  adicionarItemPedido();
   mostrarLogin();
 });
 
@@ -177,6 +181,7 @@ async function carregarProdutos() {
   try {
     const produtos = await obterJson(await apiFetch("/produtos"));
     produtosCache = produtos;
+    atualizarOpcoesItens();
     renderizarProdutos();
   } catch (error) {
     console.error(error);
@@ -220,7 +225,7 @@ function renderizarProdutos() {
         <label>Movimentar estoque</label>
         <div class="movement-grid"><select name="tipo" aria-label="Tipo de movimentação"><option value="ENTRADA">Entrada</option><option value="SAIDA">Saída</option></select><input name="quantidade" type="number" min="1" step="1" value="1" required aria-label="Quantidade"></div>
         <input name="motivo" maxlength="200" placeholder="Motivo: venda, produção..." aria-label="Motivo da movimentação">
-        <select name="pedido_id" class="order-select" aria-label="Pedido vinculado" disabled><option value="">Sem pedido vinculado</option>${pedidosCache.map(p => `<option value="${p.id}">#${p.id} — ${escapar(p.cliente)}</option>`).join("")}</select>
+        <select name="pedido_id" class="order-select" aria-label="Pedido antigo vinculado" disabled><option value="">Sem pedido vinculado</option>${pedidosCache.filter(p => !p.estoque_processado).map(p => `<option value="${p.id}">#${p.id} — ${escapar(p.cliente)} (antigo)</option>`).join("")}</select>
         <button class="button primary" type="submit">Confirmar movimentação</button><p class="movement-message" aria-live="polite"></p>
       </form>`;
     card.querySelector(".edit-product")?.addEventListener("click", () => abrirEdicao(produto));
@@ -321,13 +326,47 @@ async function carregarPedidos() {
   try {
     pedidosCache = await obterJson(await apiFetch("/pedidos"));
     document.getElementById("pedidosLista").innerHTML = pedidosCache.length
-      ? pedidosCache.map(p => `<article class="order-item"><strong>#${p.id} — ${escapar(p.cliente)}</strong><small>${escapar(p.referencia || "Sem referência")} · ${formatarData(p.criado_em)}</small></article>`).join("")
-      : '<p>Nenhum pedido registrado. Cadastre um para relacioná-lo a uma saída de estoque.</p>';
+      ? pedidosCache.map(p => `<article class="order-item"><strong>#${p.id} — ${escapar(p.cliente)}</strong><small>${escapar(p.referencia || "Sem referência")} · ${formatarData(p.criado_em)}</small>
+        ${p.estoque_processado ? `<ul>${p.itens.map(i => `<li>${escapar(i.produto_nome)}: <strong>${i.quantidade} un.</strong> · ${formatarMoeda(i.preco_unitario)}/un.</li>`).join("")}</ul><small>Saída registrada · Por ${escapar(p.usuario_nome || "Usuário não informado")}</small>` : '<small>Pedido antigo de referência · Consulte o histórico de saídas.</small>'}</article>`).join("")
+      : '<p>Nenhum pedido registrado.</p>';
     renderizarProdutos();
   } catch {
     document.getElementById("pedidosLista").textContent = "Não foi possível carregar pedidos.";
   }
 }
+
+function atualizarResumoPedido() {
+  const total = [...document.querySelectorAll(".order-quantity")].reduce((s, el) => s + (Number(el.value) || 0), 0);
+  document.getElementById("pedidoResumo").textContent = `${total} unidade(s) · A saída será registrada ao salvar.`;
+}
+
+function atualizarOpcoesItens() {
+  document.querySelectorAll(".order-product").forEach(select => {
+    const atual = select.value;
+    select.innerHTML = '<option value="">Selecione um produto</option>' + produtosCache.map(p =>
+      `<option value="${p.id}">${escapar(p.nome)} · ${p.estoque} disponíveis</option>`).join("");
+    select.value = atual;
+  });
+}
+
+function adicionarItemPedido() {
+  const container = document.getElementById("pedidoItens");
+  if (container.children.length >= 100) return;
+  const row = document.createElement("div");
+  row.className = "order-item-row";
+  row.innerHTML = '<label>Produto<select class="order-product" required></select></label><label>Quantidade<input class="order-quantity" type="number" min="1" max="2147483647" step="1" value="1" required inputmode="numeric"></label><button type="button" class="button outline remove-item" aria-label="Remover item do pedido">Remover</button>';
+  row.querySelector(".remove-item").addEventListener("click", () => {
+    row.remove();
+    if (!container.children.length) adicionarItemPedido();
+    atualizarResumoPedido();
+  });
+  row.addEventListener("input", atualizarResumoPedido);
+  container.appendChild(row);
+  atualizarOpcoesItens();
+  atualizarResumoPedido();
+}
+document.getElementById("adicionarItem").addEventListener("click", adicionarItemPedido);
+adicionarItemPedido();
 
 document.getElementById("pedidoForm").addEventListener("submit", async event => {
   event.preventDefault();
@@ -336,10 +375,23 @@ document.getElementById("pedidoForm").addEventListener("submit", async event => 
   bloquearBotao(botao, true);
   try {
     const dados = Object.fromEntries(new FormData(formPedido));
+    dados.itens = [...formPedido.querySelectorAll(".order-item-row")].map(row => ({
+      produto_id: Number(row.querySelector(".order-product").value),
+      quantidade: Number(row.querySelector(".order-quantity").value)
+    }));
+    const ids = new Set();
+    for (const item of dados.itens) {
+      if (!Number.isInteger(item.quantidade) || item.quantidade < 1 || item.quantidade > 2147483647 || !item.produto_id)
+        throw new Error("Selecione os produtos e informe quantidades inteiras maiores que zero.");
+      if (ids.has(item.produto_id)) throw new Error("Selecione cada produto apenas uma vez e ajuste sua quantidade.");
+      ids.add(item.produto_id);
+    }
     const resultado = await obterJson(await apiFetch("/pedidos", { method: "POST", body: JSON.stringify(dados) }));
-    document.getElementById("pedidoMensagem").textContent = `Pedido #${resultado.pedido.id} cadastrado.`;
+    document.getElementById("pedidoMensagem").textContent = `Pedido #${resultado.pedido.id} cadastrado. Saída de estoque registrada.`;
     formPedido.reset();
-    await carregarPedidos();
+    document.getElementById("pedidoItens").replaceChildren();
+    adicionarItemPedido();
+    await Promise.all([carregarPedidos(), carregarProdutos(), carregarHistorico(true)]);
   } catch (error) { document.getElementById("pedidoMensagem").textContent = error.message; }
   finally { bloquearBotao(botao, false); }
 });

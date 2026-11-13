@@ -7,6 +7,7 @@ import time
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
+from pathlib import Path
 
 import psycopg2
 from flask import Flask, g, jsonify, request, session
@@ -172,6 +173,7 @@ def preparar_banco():
             with psycopg2.connect(**DB_CONFIG) as conn:
                 with conn.cursor() as cur:
                     cur.execute(sql)
+                    cur.execute((Path(__file__).parent / "migrations" / "002_pedido_itens.sql").read_text(encoding="utf-8"))
             return
         except psycopg2.Error:
             if tentativa == 9:
@@ -625,7 +627,15 @@ def listar_pedidos():
     try:
         conn = get_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT id, cliente, referencia, criado_em FROM pedidos ORDER BY id DESC LIMIT 100")
+            cur.execute("""SELECT p.id, p.cliente, p.referencia, p.criado_em,
+                                  p.usuario_id, p.estoque_processado, u.nome AS usuario_nome,
+                                  COALESCE((SELECT json_agg(json_build_object(
+                                    'id', i.id, 'produto_id', i.produto_id,
+                                    'produto_nome', i.produto_nome, 'quantidade', i.quantidade,
+                                    'preco_unitario', i.preco_unitario) ORDER BY i.id)
+                                    FROM pedido_itens i WHERE i.pedido_id=p.id), '[]'::json) AS itens
+                           FROM pedidos p LEFT JOIN usuarios u ON u.id=p.usuario_id
+                           ORDER BY p.id DESC LIMIT 100""")
             return jsonify(cur.fetchall())
     except psycopg2.Error:
         return json_error("Não foi possível consultar os pedidos.", 503)
@@ -643,15 +653,61 @@ def cadastrar_pedido():
     referencia = data.get("referencia", "")
     if not cliente or len(cliente) > 150 or not isinstance(referencia, str) or len(referencia) > 80:
         return json_error("Confira o nome do cliente (até 150 caracteres) e a referência (até 80).")
+    itens = data.get("itens")
+    if not isinstance(itens, list) or not 1 <= len(itens) <= 100:
+        return json_error("Informe de 1 a 100 itens no pedido.")
+    quantidades = {}
+    try:
+        for item in itens:
+            if not isinstance(item, dict):
+                raise ValueError()
+            produto_id = inteiro(item.get("produto_id"), minimo=1)
+            quantidade = inteiro(item.get("quantidade"), minimo=1)
+            if produto_id in quantidades:
+                return json_error("Selecione cada produto apenas uma vez e ajuste sua quantidade.")
+            quantidades[produto_id] = quantidade
+    except ValueError:
+        return json_error("Produtos e quantidades devem ser inteiros positivos dentro do limite permitido.")
     conn = None
     try:
         conn = get_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""INSERT INTO pedidos (cliente, referencia) VALUES (%s, %s)
-                           RETURNING id, cliente, referencia, criado_em""", (cliente, referencia.strip() or None))
+            # Ordem fixa de bloqueio evita deadlock entre pedidos concorrentes.
+            cur.execute("""SELECT id, nome, preco, estoque FROM produtos
+                           WHERE id = ANY(%s) ORDER BY id FOR UPDATE""", (sorted(quantidades),))
+            produtos = cur.fetchall()
+            if len(produtos) != len(quantidades):
+                conn.rollback()
+                return json_error("Um dos produtos selecionados não existe.", 404)
+            for produto in produtos:
+                if produto["estoque"] < quantidades[produto["id"]]:
+                    conn.rollback()
+                    return json_error(f"Estoque insuficiente para {produto['nome']}. Disponível: {produto['estoque']}.", 409)
+            cur.execute("""INSERT INTO pedidos (cliente, referencia, usuario_id, estoque_processado)
+                           VALUES (%s, %s, %s, TRUE)
+                           RETURNING id, cliente, referencia, criado_em, usuario_id, estoque_processado""",
+                        (cliente, referencia.strip() or None, g.usuario["id"]))
             pedido = cur.fetchone()
+            pedido["itens"] = []
+            for produto in produtos:
+                quantidade = quantidades[produto["id"]]
+                novo = produto["estoque"] - quantidade
+                cur.execute("""INSERT INTO pedido_itens
+                               (pedido_id, produto_id, produto_nome, preco_unitario, quantidade)
+                               VALUES (%s,%s,%s,%s,%s) RETURNING id""",
+                            (pedido["id"], produto["id"], produto["nome"], produto["preco"], quantidade))
+                item_id = cur.fetchone()["id"]
+                cur.execute("UPDATE produtos SET estoque=%s WHERE id=%s", (novo, produto["id"]))
+                cur.execute("""INSERT INTO movimentacoes (produto_id, tipo, quantidade,
+                               estoque_anterior, estoque_posterior, motivo, pedido_id, usuario_id, pedido_item_id)
+                               VALUES (%s,'SAIDA',%s,%s,%s,%s,%s,%s,%s)""",
+                            (produto["id"], quantidade, produto["estoque"], novo, "Cadastro de pedido",
+                             pedido["id"], g.usuario["id"], item_id))
+                pedido["itens"].append({"id": item_id, "produto_id": produto["id"],
+                                        "produto_nome": produto["nome"], "quantidade": quantidade,
+                                        "preco_unitario": produto["preco"]})
         conn.commit()
-        return jsonify({"mensagem": "Pedido de referência criado.", "pedido": pedido}), 201
+        return jsonify({"mensagem": "Pedido cadastrado e saída de estoque registrada.", "pedido": pedido}), 201
     except psycopg2.Error:
         if conn:
             conn.rollback()
@@ -686,10 +742,14 @@ def movimentar_estoque():
         conn = get_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if pedido_id is not None:
-                cur.execute("SELECT id FROM pedidos WHERE id=%s", (pedido_id,))
-                if not cur.fetchone():
+                cur.execute("SELECT id, estoque_processado FROM pedidos WHERE id=%s", (pedido_id,))
+                pedido = cur.fetchone()
+                if not pedido:
                     conn.rollback()
                     return json_error("Pedido não encontrado.", 404)
+                if pedido["estoque_processado"]:
+                    conn.rollback()
+                    return json_error("Este pedido já teve seus itens baixados automaticamente.", 409)
             cur.execute("SELECT estoque, estoque_minimo FROM produtos WHERE id=%s FOR UPDATE", (produto_id,))
             produto = cur.fetchone()
             if not produto:
@@ -734,7 +794,7 @@ def listar_movimentacoes():
         conn = get_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""SELECT m.id, m.tipo, m.quantidade, m.estoque_anterior,
-                                m.estoque_posterior, m.motivo, m.pedido_id, m.criado_em,
+                                m.estoque_posterior, m.motivo, m.pedido_id, m.pedido_item_id, m.criado_em,
                                 p.nome AS produto, ped.cliente AS pedido_cliente,
                                 u.nome AS usuario_nome
                            FROM movimentacoes m JOIN produtos p ON p.id=m.produto_id
