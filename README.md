@@ -2,7 +2,7 @@
 
 Projeto acadêmico em **Flask + PostgreSQL + HTML/CSS/JavaScript + Docker Compose**, com cadastro de produtos, controle de estoque, pedidos com itens e rastreabilidade de quem movimentou os produtos.
 
-> Escopo: pedidos salvos baixam estoque e geram PDF/TXT comercial de pedido/orçamento. Edições ajustam diferenças; cancelamentos devolvem estoque e preservam o histórico. O sistema **não** faz faturamento, pagamentos ou emissão de notas fiscais. A implantação padrão é **local**, para o computador de casa e para a apresentação.
+> Escopo: todo registro novo é orçamento, sem reserva ou baixa de estoque. Somente a confirmação gera o pedido e baixa estoque. PDF/TXT distinguem orçamento de pedido. Edições de pedidos ajustam diferenças; cancelamentos de pedidos devolvem estoque e preservam o histórico. O sistema **não** faz faturamento, pagamentos ou emissão de notas fiscais. A implantação padrão é **local**, para o computador de casa e para a apresentação.
 
 Veja [pedidos, API, testes e atualização no PC de casa](docs/PEDIDOS.md). A recuperação de senha por e-mail permanece removida.
 

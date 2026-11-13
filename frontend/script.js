@@ -227,7 +227,7 @@ function renderizarProdutos() {
         <label>Movimentar estoque</label>
         <div class="movement-grid"><select name="tipo" aria-label="Tipo de movimentação"><option value="ENTRADA">Entrada</option><option value="SAIDA">Saída</option></select><input name="quantidade" type="number" min="1" step="1" value="1" required aria-label="Quantidade"></div>
         <input name="motivo" maxlength="200" placeholder="Motivo: venda, produção..." aria-label="Motivo da movimentação">
-        <select name="pedido_id" class="order-select" aria-label="Pedido antigo vinculado" disabled><option value="">Sem pedido vinculado</option>${pedidosCache.filter(p => !p.estoque_processado && p.status !== "CANCELADO").map(p => `<option value="${p.id}">#${p.id} — ${escapar(p.cliente)} (antigo)</option>`).join("")}</select>
+        <select name="pedido_id" class="order-select" aria-label="Pedido antigo vinculado" disabled><option value="">Sem pedido vinculado</option>${pedidosCache.filter(p => !p.estoque_processado && p.tipo !== "ORCAMENTO" && p.status !== "CANCELADO").map(p => `<option value="${p.id}">#${p.id} — ${escapar(p.cliente)} (antigo)</option>`).join("")}</select>
         <button class="button primary" type="submit">Confirmar movimentação</button><p class="movement-message" aria-live="polite"></p>
       </form>`;
     card.querySelector(".edit-product")?.addEventListener("click", () => abrirEdicao(produto));
@@ -328,20 +328,22 @@ async function carregarPedidos() {
   try {
     pedidosCache = await obterJson(await apiFetch("/pedidos"));
     document.getElementById("pedidosLista").innerHTML = pedidosCache.length
-      ? pedidosCache.map(p => `<article class="order-item ${p.status === 'CANCELADO' ? 'order-cancelled' : ''}"><strong>#${p.id} — ${escapar(p.cliente)} · ${escapar(p.status)}</strong><small>${escapar(p.referencia || "Sem referência")} · ${formatarData(p.criado_em)}</small>
-        ${p.estoque_processado ? `<ul>${p.itens.map(i => `<li>${escapar(i.produto_nome)}: <strong>${i.quantidade} un.</strong> · ${formatarMoeda(i.preco_unitario)}/un. · Subtotal ${formatarMoeda(Number(i.preco_unitario) * i.quantidade)}</li>`).join("")}</ul><strong>Total: ${formatarMoeda(p.itens.reduce((s, i) => s + Number(i.preco_unitario) * i.quantidade, 0))}</strong><small>${p.status === 'CANCELADO' ? 'Cancelado · Estoque devolvido' : 'Saída registrada'} · Por ${escapar(p.usuario_nome || "Usuário não informado")}</small>
+      ? pedidosCache.map(p => `<article class="order-item ${p.status === 'CANCELADO' ? 'order-cancelled' : ''}"><strong>${tipoRegistro(p)} #${p.id} — ${escapar(p.cliente)} · ${p.status === 'CANCELADO' ? 'CANCELADO' : (p.tipo === 'ORCAMENTO' ? 'AGUARDANDO CONFIRMAÇÃO' : 'CONFIRMADO')}</strong><small>${escapar(p.referencia || "Sem referência")} · ${formatarData(p.criado_em)}</small>
+        ${p.itens.length ? `<ul>${p.itens.map(i => `<li>${escapar(i.produto_nome)}: <strong>${i.quantidade} un.</strong> · ${formatarMoeda(i.preco_unitario)}/un. · Subtotal ${formatarMoeda(Number(i.preco_unitario) * i.quantidade)}</li>`).join("")}</ul><strong>Total: ${formatarMoeda(p.itens.reduce((s, i) => s + Number(i.preco_unitario) * i.quantidade, 0))}</strong><small>${p.tipo === 'ORCAMENTO' ? (p.status === 'CANCELADO' ? 'Orçamento cancelado · Sem movimentação de estoque' : 'Sem reserva ou baixa de estoque') : (p.status === 'CANCELADO' ? 'Cancelado · Estoque devolvido' : 'Pedido confirmado · Saída registrada')} · Por ${escapar(p.usuario_nome || "Usuário não informado")}</small>
         <div class="order-actions"><button type="button" class="button outline" data-order="ver" data-id="${p.id}">Visualizar PDF</button><button type="button" class="button outline" data-order="pdf" data-id="${p.id}">Baixar PDF</button><button type="button" class="button outline" data-order="txt" data-id="${p.id}">Baixar TXT</button>
-        ${p.status !== 'CANCELADO' ? `<button type="button" class="button outline" data-order="editar" data-id="${p.id}">Editar</button><button type="button" class="button outline" data-order="cancelar" data-id="${p.id}">Cancelar pedido</button>` : ''}</div>` : '<small>Pedido antigo sem itens detalhados · Consulte o histórico de saídas para reconciliar o estoque antes de ajustar.</small>'}</article>`).join("")
-      : '<p>Nenhum pedido registrado.</p>';
+        ${p.status !== 'CANCELADO' ? `${p.tipo === 'ORCAMENTO' ? `<button type="button" class="button primary" data-order="confirmar" data-id="${p.id}">Confirmar e gerar pedido</button>` : ''}<button type="button" class="button outline" data-order="editar" data-id="${p.id}">Editar</button><button type="button" class="button outline" data-order="cancelar" data-id="${p.id}">Cancelar ${p.tipo === 'ORCAMENTO' ? 'orçamento' : 'pedido'}</button>` : ''}</div>` : '<small>Pedido antigo sem itens detalhados · Consulte o histórico de saídas para reconciliar o estoque antes de ajustar.</small>'}</article>`).join("")
+      : '<p>Nenhum orçamento ou pedido registrado.</p>';
     renderizarProdutos();
   } catch {
     document.getElementById("pedidosLista").textContent = "Não foi possível carregar pedidos.";
   }
 }
 
+function tipoRegistro(pedido) { return pedido.tipo === "ORCAMENTO" ? "Orçamento" : "Pedido"; }
+
 function atualizarResumoPedido() {
   const total = [...document.querySelectorAll(".order-quantity")].reduce((s, el) => s + (Number(el.value) || 0), 0);
-  document.getElementById("pedidoResumo").textContent = `${total} unidade(s) · ${pedidoEmEdicao ? 'Somente diferenças de estoque serão ajustadas. Itens já registrados mantêm o preço histórico.' : 'A saída será registrada ao salvar.'}`;
+  document.getElementById("pedidoResumo").textContent = `${total} unidade(s) · ${pedidoEmEdicao?.tipo === 'PEDIDO' ? 'Pedido confirmado: somente diferenças de estoque serão ajustadas.' : 'Orçamento: sem reserva ou baixa de estoque. Confirme depois para gerar o pedido.'}`;
 }
 
 function atualizarOpcoesItens() {
@@ -392,7 +394,7 @@ document.getElementById("pedidoForm").addEventListener("submit", async event => 
     }
     if (pedidoEmEdicao) dados.versao = pedidoEmEdicao.versao;
     const resultado = await obterJson(await apiFetch(pedidoEmEdicao ? `/pedidos/${pedidoEmEdicao.id}` : "/pedidos", { method: pedidoEmEdicao ? "PUT" : "POST", body: JSON.stringify(dados) }));
-    document.getElementById("pedidoMensagem").textContent = `Pedido #${resultado.pedido.id}: ${resultado.mensagem}`;
+    document.getElementById("pedidoMensagem").textContent = `${tipoRegistro(resultado.pedido)} #${resultado.pedido.id}: ${resultado.mensagem}`;
     limparEdicaoPedido();
     await Promise.all([carregarPedidos(), carregarProdutos(), carregarHistorico(true)]);
   } catch (error) { document.getElementById("pedidoMensagem").textContent = error.message; }
@@ -404,7 +406,7 @@ function limparEdicaoPedido() {
   document.getElementById("pedidoForm").reset();
   document.getElementById("pedidoItens").replaceChildren();
   document.getElementById("sairEdicaoPedido").hidden = true;
-  document.querySelector('#pedidoForm button[type="submit"]').textContent = "Salvar pedido e baixar estoque";
+  document.querySelector('#pedidoForm button[type="submit"]').textContent = "Salvar orçamento";
   adicionarItemPedido();
 }
 document.getElementById("sairEdicaoPedido").addEventListener("click", limparEdicaoPedido);
@@ -427,7 +429,7 @@ document.getElementById("pedidosLista").addEventListener("click", async event =>
         janela.location.href = url;
       } else {
         const link = document.createElement("a");
-        link.href = url; link.download = `pedido-${id}.${formato}`;
+        link.href = url; link.download = resposta.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || `${pedidosCache.find(p => p.id === id)?.tipo === 'ORCAMENTO' ? 'orcamento' : 'pedido'}-${id}.${formato}`;
         document.body.appendChild(link); link.click(); link.remove();
       }
       setTimeout(() => URL.revokeObjectURL(url), 120000);
@@ -446,15 +448,19 @@ document.getElementById("pedidosLista").addEventListener("click", async event =>
         row.querySelector("input").value = item.quantidade;
       }
       document.getElementById("sairEdicaoPedido").hidden = false;
-      document.querySelector('#pedidoForm button[type="submit"]').textContent = `Salvar alterações do pedido #${id}`;
+      document.querySelector('#pedidoForm button[type="submit"]').textContent = `Salvar alterações: ${tipoRegistro(pedido).toLowerCase()} #${id}`;
       atualizarResumoPedido();
       document.getElementById("pedidoCliente").focus();
       document.getElementById("pedidoForm").scrollIntoView({ behavior: "smooth", block: "start" });
-      mensagemPedido.textContent = `Editando pedido #${id}. Produtos adicionados usam o preço atual; produtos já registrados mantêm o preço histórico.`;
-    } else if (acao === "cancelar") {
+      mensagemPedido.textContent = `Editando ${tipoRegistro(pedido).toLowerCase()} #${id}. Produtos adicionados usam o preço atual; produtos já registrados mantêm o preço histórico.`;
+    } else if (acao === "cancelar" || acao === "confirmar") {
       const pedido = pedidosCache.find(p => p.id === id);
-      if (!window.confirm(`Cancelar pedido #${id}? O estoque será devolvido e o histórico será preservado. Esta ação não pode ser desfeita.`)) return;
-      const resultado = await obterJson(await apiFetch(`/pedidos/${id}`, { method: "DELETE", body: JSON.stringify({ versao: pedido.versao }) }));
+      if (pedidoEmEdicao?.id === id) throw new Error("Salve ou descarte a edição antes de confirmar ou cancelar este registro.");
+      const pergunta = acao === "confirmar"
+        ? `Confirmar orçamento #${id} e gerar o pedido? Os itens salvos serão baixados do estoque agora. Os preços do orçamento serão mantidos.`
+        : `Cancelar ${tipoRegistro(pedido).toLowerCase()} #${id}? ${pedido.tipo === 'ORCAMENTO' ? 'O estoque não será alterado.' : 'O estoque será devolvido.'} O histórico será preservado. Esta ação não pode ser desfeita.`;
+      if (!window.confirm(pergunta)) return;
+      const resultado = await obterJson(await apiFetch(`/pedidos/${id}${acao === "confirmar" ? '/confirmar' : ''}`, { method: acao === "confirmar" ? "POST" : "DELETE", body: JSON.stringify({ versao: pedido.versao }) }));
       if (pedidoEmEdicao?.id === id) limparEdicaoPedido();
       mensagemPedido.textContent = resultado.mensagem;
       await Promise.all([carregarPedidos(), carregarProdutos(), carregarHistorico(true)]);

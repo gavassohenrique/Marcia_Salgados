@@ -37,10 +37,22 @@ def cliente(usuario):
     return client
 
 
-def enviar(client, ids, quantidades=(2, 3)):
+def criar_orcamento(client, ids, quantidades=(2, 3)):
     return client.post('/pedidos', headers={'X-CSRF-Token': 'csrf-teste'}, json={
         'cliente': 'Cliente teste', 'referencia': 'Entrega',
         'itens': [{'produto_id': p, 'quantidade': q} for p, q in zip(ids, quantidades)]})
+
+
+def confirmar(client, pedido, versao=1):
+    return client.post(f'/pedidos/{pedido}/confirmar', headers={'X-CSRF-Token': 'csrf-teste'}, json={'versao': versao})
+
+
+def enviar(client, ids, quantidades=(2, 3)):
+    """Fluxo completo para testes de pedidos já confirmados."""
+    response = criar_orcamento(client, ids, quantidades)
+    if response.status_code != 201:
+        return response
+    return confirmar(client, response.json['pedido']['id'])
 
 
 def consultar(sql, params=()):
@@ -54,7 +66,7 @@ def test_itens_persistencia_auditoria_e_bloqueio_baixa_duplicada(banco):
     usuario, ids = banco
     client = cliente(usuario)
     response = enviar(client, ids)
-    assert response.status_code == 201
+    assert response.status_code == 200
     pedido = response.json['pedido']
     assert len(pedido['itens']) == 2
     assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(8,), (7,)]
@@ -91,7 +103,7 @@ def test_falhas_nao_persistem_parcialmente(banco):
     assert enviar(client, []).status_code == 400
     assert client.post('/pedidos', json={}, headers={}).status_code == 403
     assert modulo.app.test_client().get('/pedidos').status_code == 401
-    assert consultar('SELECT id FROM pedidos WHERE usuario_id=%s', (usuario,)) == []
+    assert consultar('SELECT tipo,estoque_processado FROM pedidos WHERE usuario_id=%s', (usuario,)) == [('ORCAMENTO', False)]
     assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(10,), (10,)]
 
 
@@ -107,8 +119,8 @@ def test_erro_sql_reverte_pedido_itens_e_saldo(banco):
                             FOR EACH ROW EXECUTE FUNCTION falha_pedido_teste()""")
     try:
         assert enviar(cliente(usuario), ids).status_code == 503
-        assert consultar('SELECT id FROM pedidos WHERE usuario_id=%s', (usuario,)) == []
-        assert consultar('SELECT id FROM pedido_itens WHERE produto_id=ANY(%s)', (ids,)) == []
+        assert consultar('SELECT tipo,estoque_processado,versao FROM pedidos WHERE usuario_id=%s', (usuario,)) == [('ORCAMENTO', False, 1)]
+        assert len(consultar('SELECT id FROM pedido_itens WHERE produto_id=ANY(%s)', (ids,))) == 2
         assert consultar('SELECT id FROM movimentacoes WHERE produto_id=ANY(%s)', (ids,)) == []
         assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(10,), (10,)]
     finally:
@@ -126,9 +138,9 @@ def test_pedidos_concorrentes_nao_vendem_mesmo_saldo(banco):
         return enviar(client, ordem, (7, 7)).status_code
     with ThreadPoolExecutor(max_workers=2) as executor:
         resultados = list(executor.map(pedir, [ids, ids[::-1]]))
-    assert sorted(resultados) == [201, 409]
+    assert sorted(resultados) == [200, 409]
     assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(3,), (3,)]
-    assert len(consultar('SELECT id FROM pedidos WHERE usuario_id=%s', (usuario,))) == 1
+    assert len(consultar("SELECT id FROM pedidos WHERE usuario_id=%s AND tipo='PEDIDO'", (usuario,))) == 1
 
 
 def test_migracao_aditiva_preserva_schema_antigo(monkeypatch):
@@ -162,6 +174,7 @@ def test_migracao_aditiva_preserva_schema_antigo(monkeypatch):
     assert consultar('SELECT * FROM pedido_itens') == []
     assert consultar('SELECT nome,preco,estoque FROM produtos') == [('Produto preservado', modulo.Decimal('4.50'), 7)]
     assert consultar('SELECT quantidade,estoque_anterior,estoque_posterior,motivo,pedido_id FROM movimentacoes') == [(3, 10, 7, 'Antigo', 1)]
+    assert consultar('SELECT tipo,confirmado_em FROM pedidos') == [('PEDIDO', None)]
 
 
 def test_saida_manual_ainda_aceita_pedido_antigo(banco):
@@ -177,7 +190,7 @@ def test_saida_manual_ainda_aceita_pedido_antigo(banco):
     assert response.json['estoque_atual'] == 9
 
 
-def editar(client, pedido, ids, quantidades=(4, 1), versao=1):
+def editar(client, pedido, ids, quantidades=(4, 1), versao=2):
     return client.put(f'/pedidos/{pedido}', headers={'X-CSRF-Token': 'csrf-teste'}, json={
         'versao': versao, 'cliente': 'Cliente atualizado', 'referencia': 'Nova entrega',
         'itens': [{'produto_id': p, 'quantidade': q} for p, q in zip(ids, quantidades)]})
@@ -206,14 +219,14 @@ def test_edicao_deltas_preco_historico_cancelamento_e_documentos(banco):
     assert 'TOTAL: R$ 27,50' in texto and 'Cliente atualizado' in texto
     pdf = client.get(f'/pedidos/{pedido}/documento.pdf?visualizar=1')
     assert pdf.data.startswith(b'%PDF-') and pdf.headers['Content-Disposition'].startswith('inline')
-    assert cancelar(client, pedido, 2).status_code == 200
-    assert cancelar(client, pedido, 3).status_code == 409
-    assert editar(client, pedido, ids, versao=3).status_code == 409
+    assert cancelar(client, pedido, 3).status_code == 200
+    assert cancelar(client, pedido, 4).status_code == 409
+    assert editar(client, pedido, ids, versao=4).status_code == 409
     assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(10,), (10,)]
     detalhe = client.get(f'/pedidos/{pedido}').json
     assert detalhe['status'] == 'CANCELADO' and len(detalhe['itens']) == 2
-    assert [e['acao'] for e in detalhe['historico']] == ['CRIACAO', 'EDICAO', 'CANCELAMENTO']
-    assert detalhe['historico'][1]['antes']['cliente'] == 'Cliente teste'
+    assert [e['acao'] for e in detalhe['historico']] == ['CRIACAO', 'CONFIRMACAO', 'EDICAO', 'CANCELAMENTO']
+    assert detalhe['historico'][2]['antes']['cliente'] == 'Cliente teste'
     assert 'CANCELADO' in client.get(f'/pedidos/{pedido}/documento.txt').data.decode('utf-8')
     # Repetir migrações depois de múltiplas movimentações de um item é seguro.
     modulo.preparar_banco()
@@ -225,10 +238,10 @@ def test_edicao_insuficiente_versao_remocao_e_readicao(banco):
     pedido = enviar(client, ids).json['pedido']['id']
     assert editar(client, pedido, ids, (11, 1)).status_code == 409
     assert editar(client, pedido, ids, versao=99).status_code == 409
-    assert client.get(f'/pedidos/{pedido}').json['versao'] == 1
+    assert client.get(f'/pedidos/{pedido}').json['versao'] == 2
     assert editar(client, pedido, ids[:1], (2,)).status_code == 200
     assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(8,), (10,)]
-    assert editar(client, pedido, ids[::-1], (3, 2), versao=2).status_code == 200
+    assert editar(client, pedido, ids[::-1], (3, 2), versao=3).status_code == 200
     assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(8,), (7,)]
 
 
@@ -239,7 +252,7 @@ def test_cancelamentos_simultaneos_devolvem_uma_vez(banco):
     def cancelar_junto(_):
         c = cliente(usuario)
         barreira.wait(timeout=10)
-        return cancelar(c, pedido, 1).status_code
+        return cancelar(c, pedido, 2).status_code
     with ThreadPoolExecutor(max_workers=2) as executor:
         assert sorted(executor.map(cancelar_junto, range(2))) == [200, 409]
     assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(10,), (10,)]
@@ -272,11 +285,11 @@ def test_edicao_cancelamento_rollback_sql(banco):
                 FOR EACH ROW EXECUTE FUNCTION falha_evento_teste()""")
     try:
         assert editar(client, pedido, ids).status_code == 503
-        assert cancelar(client, pedido, 1).status_code == 503
+        assert cancelar(client, pedido, 2).status_code == 503
         assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(8,), (7,)]
         detalhe = client.get(f'/pedidos/{pedido}').json
-        assert detalhe['versao'] == 1 and detalhe['status'] == 'ATIVO'
-        assert len(detalhe['historico']) == 1
+        assert detalhe['versao'] == 2 and detalhe['status'] == 'ATIVO'
+        assert len(detalhe['historico']) == 2
         assert [i['quantidade'] for i in detalhe['itens']] == [2, 3]
         assert len(consultar('SELECT id FROM movimentacoes WHERE pedido_id=%s', (pedido,))) == 2
     finally:
@@ -312,12 +325,12 @@ def test_mesmo_pedido_edicoes_ou_cancelamento_concorrentes(banco, segunda_acao):
         c = cliente(usuario)
         barreira.wait(timeout=10)
         if indice == 1 and segunda_acao == 'cancelar':
-            return cancelar(c, pedido, 1).status_code
+            return cancelar(c, pedido, 2).status_code
         return editar(c, pedido, ids, (4, 1)).status_code
     with ThreadPoolExecutor(max_workers=2) as executor:
         assert sorted(executor.map(agir, range(2))) == [200, 409]
     detalhe = cliente(usuario).get(f'/pedidos/{pedido}').json
-    assert detalhe['versao'] == 2 and len(detalhe['historico']) == 2
+    assert detalhe['versao'] == 3 and len(detalhe['historico']) == 3
     esperado = [(10,), (10,)] if detalhe['status'] == 'CANCELADO' else [(6,), (9,)]
     assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == esperado
 
@@ -332,5 +345,112 @@ def test_produto_adicionado_usa_preco_atual_e_edicao_sem_delta(banco):
     assert editar(client, pedido, ids, (2, 3)).status_code == 200
     itens = client.get(f'/pedidos/{pedido}').json['itens']
     assert [i['preco_unitario'] for i in itens] == ['5.50', '9.99']
-    assert editar(client, pedido, ids, (2, 3), versao=2).status_code == 200
+    assert editar(client, pedido, ids, (2, 3), versao=3).status_code == 200
     assert len(consultar('SELECT id FROM movimentacoes WHERE pedido_id=%s', (pedido,))) == 2
+
+
+def test_orcamento_edita_cancela_e_baixa_manual_bloqueada_sem_alterar_saldo(banco):
+    usuario, ids = banco
+    client = cliente(usuario)
+    r = criar_orcamento(client, ids, (20, 30))
+    assert r.status_code == 201
+    pedido = r.json['pedido']
+    assert pedido['tipo'] == 'ORCAMENTO' and not pedido['estoque_processado']
+    assert editar(client, pedido['id'], ids[:1], (100,), versao=1).status_code == 200
+    assert client.post('/estoque/movimentacao', headers={'X-CSRF-Token': 'csrf-teste'}, json={
+        'produto_id': ids[0], 'quantidade': 1, 'tipo': 'SAIDA', 'pedido_id': pedido['id']}).status_code == 409
+    txt = client.get(f"/pedidos/{pedido['id']}/documento.txt")
+    assert txt.headers['Content-Disposition'].endswith(f'filename="orcamento-{pedido["id"]}.txt"')
+    assert 'ORÇAMENTO' in txt.data.decode() and 'não reserva nem movimenta' in txt.data.decode()
+    assert cancelar(client, pedido['id'], 2).status_code == 200
+    assert confirmar(client, pedido['id'], 3).status_code == 409
+    assert cancelar(client, pedido['id'], 3).status_code == 409
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(10,), (10,)]
+    assert consultar('SELECT id FROM movimentacoes WHERE pedido_id=%s', (pedido['id'],)) == []
+    detalhe = client.get(f"/pedidos/{pedido['id']}").json
+    assert [e['acao'] for e in detalhe['historico']] == ['CRIACAO', 'EDICAO', 'CANCELAMENTO']
+    assert not detalhe['estoque_processado'] and detalhe['tipo'] == 'ORCAMENTO'
+    assert 'sem movimentação de estoque' in client.get(f"/pedidos/{pedido['id']}/documento.txt").data.decode()
+
+
+def test_confirmacao_preserva_precos_e_baixa_apenas_uma_vez(banco):
+    usuario, ids = banco
+    client = cliente(usuario)
+    pedido = criar_orcamento(client, ids).json['pedido']['id']
+    with psycopg2.connect(**modulo.DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE produtos SET preco=99,nome='Outro nome' WHERE id=ANY(%s)", (ids,))
+    # Nem campos extras podem forçar baixa/criar pedido pelo POST inicial.
+    response = confirmar(client, pedido)
+    assert response.status_code == 200
+    detalhe = response.json['pedido']
+    assert detalhe['tipo'] == 'PEDIDO' and detalhe['estoque_processado'] and detalhe['confirmado_em']
+    assert [i['preco_unitario'] for i in detalhe['itens']] == ['5.50', '5.50']
+    assert detalhe['itens'][0]['produto_nome'] == 'Coxinha'
+    assert confirmar(client, pedido, 2).status_code == 409
+    assert confirmar(client, pedido, 1).status_code == 409
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(8,), (7,)]
+    txt = client.get(f'/pedidos/{pedido}/documento.txt')
+    assert txt.data.decode().splitlines()[1] == 'PEDIDO'
+    assert 'Confirmado em:' in txt.data.decode()
+    assert cancelar(client, pedido, 2).status_code == 200
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(10,), (10,)]
+
+
+def test_confirmacao_insuficiente_mantem_orcamento_e_permite_corrigir(banco):
+    usuario, ids = banco
+    client = cliente(usuario)
+    pedido = criar_orcamento(client, ids, (2, 11)).json['pedido']['id']
+    assert confirmar(client, pedido).status_code == 409
+    detalhe = client.get(f'/pedidos/{pedido}').json
+    assert detalhe['tipo'] == 'ORCAMENTO' and detalhe['versao'] == 1
+    assert not detalhe['estoque_processado'] and detalhe['confirmado_em'] is None
+    assert len(detalhe['historico']) == 1
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == [(10,), (10,)]
+    assert consultar('SELECT id FROM movimentacoes WHERE pedido_id=%s', (pedido,)) == []
+    assert editar(client, pedido, ids, (2, 3), versao=1).status_code == 200
+    assert confirmar(client, pedido, 1).status_code == 409
+    assert confirmar(client, pedido, 2).status_code == 200
+    modulo.preparar_banco()
+    assert client.get(f'/pedidos/{pedido}').json['tipo'] == 'PEDIDO'
+
+
+@pytest.mark.parametrize('outra_acao', ['confirmar', 'editar', 'cancelar'])
+def test_confirmacao_concorrente_com_outras_acoes(banco, outra_acao):
+    usuario, ids = banco
+    client = cliente(usuario)
+    pedido = criar_orcamento(client, ids).json['pedido']['id']
+    barreira = Barrier(2)
+    def agir(indice):
+        c = cliente(usuario)
+        barreira.wait(timeout=10)
+        if indice == 1 and outra_acao == 'editar':
+            return editar(c, pedido, ids, (4, 1), versao=1).status_code
+        if indice == 1 and outra_acao == 'cancelar':
+            return cancelar(c, pedido, 1).status_code
+        return confirmar(c, pedido).status_code
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        assert sorted(executor.map(agir, range(2))) == [200, 409]
+    detalhe = client.get(f'/pedidos/{pedido}').json
+    assert detalhe['versao'] == 2 and len(detalhe['historico']) == 2
+    esperado = [(8,), (7,)] if detalhe['tipo'] == 'PEDIDO' else [(10,), (10,)]
+    assert consultar('SELECT estoque FROM produtos WHERE id=ANY(%s) ORDER BY id', (ids,)) == esperado
+
+
+def test_confirmacao_exige_sessao_csrf_e_versao_e_nao_aceita_tipo_do_cliente(banco):
+    usuario, ids = banco
+    client = cliente(usuario)
+    r = client.post('/pedidos', headers={'X-CSRF-Token': 'csrf-teste'}, json={
+        'cliente': 'Cliente teste', 'tipo': 'PEDIDO', 'estoque_processado': True,
+        'itens': [{'produto_id': ids[0], 'quantidade': 1}]})
+    pedido = r.json['pedido']['id']
+    assert r.json['pedido']['tipo'] == 'ORCAMENTO'
+    assert modulo.app.test_client().post(f'/pedidos/{pedido}/confirmar', json={'versao': 1}).status_code == 401
+    assert client.post(f'/pedidos/{pedido}/confirmar', json={'versao': 1}).status_code == 403
+    for dados in ({}, {'versao': True}, {'versao': 0}):
+        assert client.post(f'/pedidos/{pedido}/confirmar', headers={'X-CSRF-Token': 'csrf-teste'}, json=dados).status_code == 400
+    assert confirmar(client, 2147483647).status_code == 404
+    assert consultar('SELECT id FROM movimentacoes WHERE pedido_id=%s', (pedido,)) == []
+    modulo.preparar_banco()
+    modulo.preparar_banco()
+    assert client.get(f'/pedidos/{pedido}').json['tipo'] == 'ORCAMENTO'

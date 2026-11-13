@@ -32,7 +32,7 @@ Registrar 10 unidades do produto, motivo "Nova produção". Verificar o novo sal
 
 ## 6. Pedido e saída de estoque
 
-Cadastrar um pedido com cliente, referência e dois produtos do ambiente de teste. Mostrar a baixa automática e o histórico; não repetir a saída manual. Abrir o PDF e baixar o TXT, conferindo preços históricos e total. Explicar que são documentos comerciais, sem valor fiscal, de um pedido que já movimentou estoque. Editar quantidades e mostrar somente os deltas; cancelar e mostrar devolução, status CANCELADO e histórico preservado. Pedidos antigos sem itens exigem reconciliação antes de ajustes automáticos.
+Cadastrar um orçamento com cliente, referência e dois produtos do ambiente de teste. Mostrar que salvar/editar não altera estoque, e baixar PDF/TXT identificados como ORÇAMENTO. Usar Confirmar e gerar pedido, mostrar a confirmação explícita e só então a saída no histórico. Os preços do orçamento são preservados. Editar o pedido confirmado ajusta apenas deltas; cancelar pedido devolve estoque, enquanto cancelar orçamento não o altera. Ambos preservam histórico e documentos comerciais sem valor fiscal. Pedidos antigos sem itens exigem reconciliação antes de ajustes automáticos.
 
 ## 7. Proteções e rastreabilidade
 
@@ -50,6 +50,6 @@ SELECT * FROM movimentacoes ORDER BY id DESC;
 
 ## 8. Conclusão
 
-Destacar organização, documentos PDF/TXT, validação, perfis e trilha de auditoria. Como possíveis melhorias futuras, citar orçamento pendente com confirmação explícita e relatórios consolidados. A recuperação de senha por e-mail permanece removida.
+Destacar orçamento com confirmação explícita, documentos PDF/TXT, validação, perfis e trilha de auditoria. Como possível melhoria futura, citar relatórios consolidados. A recuperação de senha por e-mail permanece removida.
 
 **Nota de precisão:** este documento é roteiro; não é evidência de que Docker, banco ou testes ponta a ponta foram executados. Ajustar as falas conforme o resultado real da demonstração.

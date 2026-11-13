@@ -26,8 +26,22 @@ def subtotal(item):
     return Decimal(str(item["preco_unitario"])) * item["quantidade"]
 
 
+def identificacao(pedido):
+    return "ORÇAMENTO" if pedido.get("tipo") == "ORCAMENTO" else "PEDIDO"
+
+
+def aviso(pedido):
+    if pedido.get("status") == "CANCELADO":
+        return ("ORÇAMENTO CANCELADO - sem movimentação de estoque. Valores apenas para histórico."
+                if pedido.get("tipo") == "ORCAMENTO" else
+                "PEDIDO CANCELADO - estoque devolvido. Valores apenas para histórico.")
+    if pedido.get("tipo") == "ORCAMENTO":
+        return "Aguardando confirmação. Este orçamento não reserva nem movimenta estoque."
+    return "Pedido confirmado com baixa de estoque."
+
+
 def gerar_txt(pedido):
-    linhas = ["MÁRCIA SALGADOS", "PEDIDO / ORÇAMENTO", f"Número: {pedido['id']:06d}",
+    linhas = ["MÁRCIA SALGADOS", identificacao(pedido), f"Número: {pedido['id']:06d}",
               f"Data: {data_local(pedido['criado_em'])} (Brasília)",
               f"Status: {pedido.get('status', 'ATIVO')}",
               f"Cliente: {texto(pedido['cliente'])}", f"Referência: {texto(pedido['referencia']) or 'Não informada'}", "", "ITENS"]
@@ -36,9 +50,9 @@ def gerar_txt(pedido):
                    f"  {item['quantidade']} un. x {moeda(item['preco_unitario'])} = {moeda(subtotal(item))}"]
     linhas += ["", f"TOTAL: {moeda(sum((subtotal(i) for i in pedido['itens']), Decimal(0)))}",
                "", "Documento comercial. Não é documento fiscal.",
-               "Pedido registrado com baixa de estoque; não representa orçamento pendente de confirmação."]
-    if pedido.get("status") == "CANCELADO":
-        linhas += ["CANCELADO - estoque devolvido. Valores mantidos apenas para histórico."]
+               aviso(pedido)]
+    if pedido.get("confirmado_em"):
+        linhas += [f"Confirmado em: {data_local(pedido['confirmado_em'])} (Brasília)"]
     return "\n".join(linhas) + "\n"
 
 
@@ -55,14 +69,14 @@ def gerar_pdf(pedido):
     def p(valor, estilo=normal):
         return Paragraph(escape(texto(valor)), estilo)
     doc = SimpleDocTemplate(saida, pagesize=A4, rightMargin=40, leftMargin=40,
-                            topMargin=42, bottomMargin=48, title=f"Márcia Salgados - Pedido {pedido['id']}",
+                            topMargin=42, bottomMargin=48, title=f"Márcia Salgados - {identificacao(pedido)} {pedido['id']}",
                             author="Márcia Salgados")
-    elementos = [p("Márcia Salgados", estilos["Title"]), p("PEDIDO / ORÇAMENTO", estilos["Heading2"]),
+    elementos = [p("Márcia Salgados", estilos["Title"]), p(identificacao(pedido), estilos["Heading2"]),
                  p(f"Nº {pedido['id']:06d} | {data_local(pedido['criado_em'])} (Brasília) | {pedido.get('status', 'ATIVO')}"),
                  Spacer(1, 16), p(f"Cliente: {pedido['cliente']}"),
                  p(f"Referência: {pedido['referencia'] or 'Não informada'}"), Spacer(1, 18)]
     if pedido.get("status") == "CANCELADO":
-        elementos += [p("CANCELADO - estoque devolvido. Valores apenas para histórico.", estilos["Heading3"])]
+        elementos += [p(aviso(pedido), estilos["Heading3"])]
     dados = [[p("Produto"), p("Qtd."), p("Unitário"), p("Subtotal")]]
     for item in pedido["itens"]:
         dados.append([p(item["produto_nome"]), p(item["quantidade"], direita),
@@ -76,11 +90,13 @@ def gerar_pdf(pedido):
         ("LINEBELOW", (0, 0), (-1, 0), 1, colors.HexColor("#b56b25"))]))
     elementos += [tabela, Spacer(1, 18), p(f"TOTAL: {moeda(sum((subtotal(i) for i in pedido['itens']), Decimal(0)))}", estilos["Heading2"]),
                   Spacer(1, 12), p("Documento comercial. Não é documento fiscal."),
-                  p("Pedido registrado com baixa de estoque; não representa orçamento pendente de confirmação.")]
+                  p(aviso(pedido))]
+    if pedido.get("confirmado_em"):
+        elementos += [p(f"Confirmado em: {data_local(pedido['confirmado_em'])} (Brasília)")]
     def rodape(canvas, documento):
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(colors.HexColor("#666666"))
-        canvas.drawString(40, 25, f"Márcia Salgados | Pedido {pedido['id']:06d} | {pedido.get('status', 'ATIVO')}")
+        canvas.drawString(40, 25, f"Márcia Salgados | {identificacao(pedido)} {pedido['id']:06d} | {pedido.get('status', 'ATIVO')}")
         canvas.drawRightString(A4[0]-40, 25, f"Página {documento.page}")
     doc.build(elementos, onFirstPage=rodape, onLaterPages=rodape)
     return saida.getvalue()

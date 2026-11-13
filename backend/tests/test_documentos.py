@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 import pytest
-from documentos import moeda, gerar_txt, gerar_pdf
+from documentos import moeda, gerar_txt, gerar_pdf, identificacao, aviso
 from app import validar_edicao
 
 
@@ -28,3 +28,15 @@ def test_recuperacao_por_email_continua_removida():
     from app import app
     rotas = [r.rule.lower() for r in app.url_map.iter_rules()]
     assert not any(any(termo in rota for termo in ('recuper', 'forgot', 'reset-password')) for rota in rotas)
+
+
+@pytest.mark.parametrize('tipo,status,titulo,conteudo', [
+    ('ORCAMENTO', 'ATIVO', 'ORÇAMENTO', 'não reserva nem movimenta'),
+    ('ORCAMENTO', 'CANCELADO', 'ORÇAMENTO', 'sem movimentação'),
+    ('PEDIDO', 'ATIVO', 'PEDIDO', 'confirmado com baixa'),
+    ('PEDIDO', 'CANCELADO', 'PEDIDO', 'estoque devolvido'),
+])
+def test_documento_distingue_orcamento_pedido_cancelamento(tipo, status, titulo, conteudo):
+    pedido = {'tipo': tipo, 'status': status}
+    assert identificacao(pedido) == titulo
+    assert conteudo in aviso(pedido)

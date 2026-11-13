@@ -139,8 +139,8 @@
 <section id="pedidos" class="section">
   <div class="section-heading">
     <span class="eyebrow">RASTREABILIDADE</span>
-    <h2>Cadastro de pedidos</h2>
-    <p>Selecione os produtos e suas quantidades. Ao salvar, o estoque será baixado e cada saída ficará registrada no histórico.</p>
+    <h2>Orçamentos e pedidos</h2>
+    <p>Prepare o orçamento e envie ao cliente. Somente ao confirmar ele se torna pedido e baixa o estoque.</p>
   </div>
   <form id="pedidoForm" class="order-form">
     <div class="field"><label for="pedidoCliente">Cliente *</label>
@@ -151,9 +151,9 @@
       <button id="adicionarItem" class="button outline" type="button">+ Adicionar produto</button>
     </fieldset>
     <p id="pedidoResumo" role="status">0 unidades</p>
-    <button class="button primary" type="submit">Salvar pedido e baixar estoque</button>
+    <button class="button primary" type="submit">Salvar orçamento</button>
     <button id="sairEdicaoPedido" class="button outline" type="button" hidden>Descartar edição</button>
-    <p>Pedidos salvos já baixam estoque. PDF e TXT são documentos comerciais, sem valor fiscal. Cancelar devolve o estoque e preserva o histórico.</p>
+    <p>Orçamentos não reservam nem movimentam estoque. A confirmação gera o pedido e registra a saída. Cancelar orçamento não altera estoque; cancelar pedido confirmado devolve o estoque. PDF e TXT são documentos comerciais, sem valor fiscal.</p>
     <p id="pedidoMensagem" aria-live="polite"></p>
   </form>
   <div id="pedidosLista" class="orders" aria-live="polite"></div>
