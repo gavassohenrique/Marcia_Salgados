@@ -26,3 +26,29 @@ O envio real ocorre fora da resposta HTTP, em fila limitada em memória (2 envio
 Em 13/11/2026: 66 testes Flask/PostgreSQL 15 em banco descartável e 9 testes de frontend passaram; sintaxe JavaScript e ambos os arquivos Compose foram validados. Incluem concorrência/uso único, expiração, versão de sessão, política e confirmação de senha, limite compartilhado e sequência SMTP com TLS em adaptador de teste. Integra as correções de `audit/correcoes-2026-11-13` (`4e3ff8b`) e as mudanças anteriores de pedidos/responsividade.
 
 A política do navegador bloqueou a prévia de arquivo local: a revisão visual em larguras de celular e desktop permanece pendente. Os testes de frontend exercitam handlers e atributos, não o layout de um navegador real. Entrega externa SMTP não foi validada por falta de credenciais/domínio; não houve envio real para caixa postal externa nem acesso à base de produção.
+
+## Gmail: configuração escolhida para este sistema
+
+1. Na Conta Google que enviará as mensagens, ative a verificação em duas etapas.
+2. Acesse https://myaccount.google.com/apppasswords e crie uma senha de app exclusiva para este sistema. Faça essa etapa pessoalmente; não envie a senha pelo chat. Se a opção não aparecer, consulte as restrições da conta na documentação oficial abaixo.
+3. No arquivo `.env` da instalação efetivamente usada, mantenha intactos `POSTGRES_PASSWORD`, `POSTGRES_USER`, `POSTGRES_DB` e `FLASK_SECRET_KEY`. Acrescente ou atualize somente as variáveis de e-mail:
+
+```dotenv
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_USERNAME=SEU_ENDERECO_GMAIL
+SMTP_FROM=SEU_ENDERECO_GMAIL
+SMTP_PASSWORD=SENHA_DE_APP_INSERIDA_APENAS_LOCALMENTE
+PUBLIC_APP_URL=ORIGEM_HTTPS_DO_SISTEMA
+```
+
+Os textos em maiúsculas acima são marcadores, não valores funcionais. Use o endereço Gmail completo nos dois campos de e-mail e a senha de app no campo de senha. Não use a senha normal da Conta Google. Não versione esse arquivo nem compartilhe capturas que mostrem a senha.
+
+O sistema atualmente é usado somente no computador do usuário. O código foi incorporado à `main` pelo PR #2 e os testes do GitHub passaram também após a integração. A instalação local não foi atualizada automaticamente. Falta identificar sua pasta e o ambiente que está em uso antes de qualquer atualização, para preservar os dados existentes.
+
+O endereço HTTP local não é um destino aceito pelo fluxo atual de recuperação. É necessário definir uma origem HTTPS acessível e com certificado confiável para testar os links; não substituir por um endereço público HTTP nem desativar a verificação de certificado. Não é necessário publicar o banco de dados. Até que isso e as credenciais sejam configurados, a entrega real continua pendente.
+
+Depois da configuração, recrie apenas backend e frontend pelo procedimento da instalação, sem remover volumes. Faça uma solicitação com uma conta cadastrada de teste, confira o recebimento no Gmail, redefina a senha e confirme que o link não pode ser reutilizado e as sessões antigas foram encerradas. Não registre o token ou a senha em relatórios.
+
+Fontes oficiais: [Senhas de app e verificação em duas etapas](https://support.google.com/accounts/answer/185833?hl=pt-BR), [SMTP do Gmail com STARTTLS na porta 587](https://developers.google.com/workspace/gmail/imap/imap-smtp).
