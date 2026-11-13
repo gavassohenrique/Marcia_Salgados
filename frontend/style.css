@@ -582,3 +582,10 @@ html { scroll-padding-top: 155px; }
   .user-actions { flex-basis: auto; justify-content: flex-start; }
   input, select { font-size: 16px; }
 }
+
+/* Autenticação acessível também em telas estreitas e com zoom. */
+.login-panel { min-width: 0; max-height: none; margin: auto; overflow-wrap: anywhere; }
+.login-panel input { min-width: 0; width: 100%; }
+.login-panel button { min-height: 44px; white-space: normal; }
+.login-panel button:focus-visible { outline: 3px solid #146a9b; outline-offset: 3px; }
+.login-overlay { padding: 16px; align-items: safe center; }

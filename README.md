@@ -161,3 +161,5 @@ PDF/                         documentos acadêmicos
 O diretório `k8s/` é um **exemplo acadêmico**, não uma implantação pública pronta. Exige instalação de TLS, armazenamento persistente e configuração própria; a versão Docker Compose local é a recomendada para apresentação.
 
 **Status de validação:** a sintaxe e os fluxos com API simulada podem ser verificados sem banco; um resultado de navegação simulada ou YAML válido não comprova execução real de Flask + PostgreSQL ou implantação Kubernetes. Antes de apresentar, faça os testes locais.
+
+Recuperação por e-mail: consulte [configuração segura de SMTP e domínio HTTPS](docs/RECUPERACAO_SENHA.md).

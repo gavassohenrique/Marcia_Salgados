@@ -14,6 +14,8 @@ function pagina() {
       this.children = []; this.handlers = {}; this.resets = 0;
       this.classList = { add() {}, remove() {} };
     }
+    focus() { this.focused = true; }
+    setAttribute(key, value) { this[key] = value; }
     addEventListener(type, handler) { this.handlers[type] = handler; }
     querySelector(selector) { return get(selector); }
     querySelectorAll() { return []; }
@@ -33,7 +35,15 @@ function pagina() {
   const context = vm.createContext({
     document: {
       getElementById: get, createElement: () => new Element(),
-      querySelector: get, querySelectorAll: () => [],
+      querySelector: get, querySelectorAll: selector => {
+        if (selector === '[data-password]') {
+          const button = get('toggleSenha');
+          button.dataset = {password: 'loginSenha'};
+          get('loginSenha').type = 'password';
+          return [button];
+        }
+        return [];
+      },
     },
     FormData: class { constructor() { return Object.entries({
       nome: 'Operador teste', email: 'teste@example.test',
@@ -50,6 +60,7 @@ function pagina() {
       if (url.includes('/movimentacoes?')) body = [];
       return { status: 200, ok: true, json: async () => body, text: async () => JSON.stringify(body) };
     },
+    location: {hash: "", pathname: "/", search: ""}, history: {replaceState() {}},
     console, alert: text => alerts.push(text), setTimeout,
   });
   vm.runInContext(readFileSync(join(__dirname, '../script.js'), 'utf8'), context);
@@ -124,4 +135,36 @@ test('filtro disponível inclui saldo positivo abaixo do mínimo e exclui saldo 
   ]; renderizarProdutos();`, p.context);
   assert.equal(p.get('lista').children.length, 2);
   assert.equal(p.get('status').textContent, '2 de 3 produto(s)');
+});
+
+test('mostrar senha alterna tipo e rótulo acessível sem enviar o login', () => {
+  const p = pagina();
+  p.get('loginSenha').value = 'SenhaTeste!';
+  const before = p.requests.filter(r => r.url.endsWith('/auth/login')).length;
+  p.get('toggleSenha').handlers.click();
+  assert.equal(p.get('loginSenha').type, 'text');
+  assert.equal(p.get('toggleSenha')['aria-label'], 'Ocultar senha');
+  assert.equal(p.get('toggleSenha')['aria-pressed'], 'true');
+  p.get('toggleSenha').handlers.click();
+  assert.equal(p.get('loginSenha').type, 'password');
+  assert.equal(p.get('loginSenha').value, 'SenhaTeste!');
+  assert.equal(p.requests.filter(r => r.url.endsWith('/auth/login')).length, before);
+});
+
+test('solicitação por e-mail usa formulário público e mostra confirmação', async () => {
+  const p = pagina();
+  p.get('recuperarEmail').value = 'teste@example.com';
+  await p.submit('recuperarForm');
+  const r = p.requests.find(r => r.url.endsWith('/auth/recuperar-senha'));
+  assert.deepEqual(JSON.parse(r.options.body), {email:'teste@example.com'});
+  assert.equal(p.get('recuperarMensagem').textContent, 'Operação concluída.');
+});
+
+test('confirmação divergente impede envio da nova senha', async () => {
+  const p = pagina();
+  p.get('novaSenhaRecuperacao').value = 'SenhaNova!';
+  p.get('confirmarSenhaRecuperacao').value = 'OutraSenha!';
+  await p.submit('redefinirForm');
+  assert.equal(p.requests.some(r => r.url.endsWith('/auth/redefinir-senha')), false);
+  assert.equal(p.get('confirmarSenhaRecuperacao').focused, true);
 });

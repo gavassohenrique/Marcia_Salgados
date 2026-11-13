@@ -119,6 +119,10 @@ async function inicializar() {
   try {
     const response = await fetch(`${API}/auth/status`, { cache: "no-store" });
     const estado = await obterJson(response);
+    if (tokenRecuperacao) {
+      mostrarLogin();
+      return;
+    }
     if (!estado.configurado) {
       mostrarLogin("Configure FLASK_SECRET_KEY no arquivo .env antes de iniciar.");
     } else if (estado.primeiro_acesso) {
@@ -572,3 +576,75 @@ document.getElementById("resetSenhaForm").addEventListener("submit", async event
 });
 
 inicializar();
+
+// Tokens ficam somente em memória, sem localStorage ou parâmetros na URL.
+let tokenRecuperacao = "";
+function painelAutenticacao(id) {
+  for (const painel of ["loginForm", "recuperarForm", "redefinirForm"]) {
+    document.getElementById(painel).hidden = painel !== id;
+  }
+  document.querySelector(`#${id} h2`).focus();
+}
+document.querySelectorAll("[data-password]").forEach(botao => {
+  botao.addEventListener("click", () => {
+    const campo = document.getElementById(botao.dataset.password);
+    const visivel = campo.type === "password";
+    campo.type = visivel ? "text" : "password";
+    botao.textContent = visivel ? "Ocultar senha" : "Mostrar senha";
+    botao.setAttribute("aria-label", botao.textContent);
+    botao.setAttribute("aria-pressed", String(visivel));
+  });
+});
+document.getElementById("esqueciSenha").addEventListener("click", () => {
+  document.getElementById("recuperarEmail").value = document.getElementById("loginEmail").value;
+  painelAutenticacao("recuperarForm");
+  document.getElementById("recuperarEmail").focus();
+});
+document.querySelectorAll(".voltar-login").forEach(botao => botao.addEventListener("click", () => {
+  tokenRecuperacao = "";
+  document.getElementById("redefinirForm").reset();
+  painelAutenticacao("loginForm");
+}));
+for (const [formId, rota, mensagemId] of [
+  ["recuperarForm", "/auth/recuperar-senha", "recuperarMensagem"],
+  ["redefinirForm", "/auth/redefinir-senha", "redefinirMensagem"]
+]) {
+  document.getElementById(formId).addEventListener("submit", async event => {
+    event.preventDefault();
+    const botao = event.currentTarget.querySelector("button[type=submit]");
+    const mensagem = document.getElementById(mensagemId);
+    const redefinir = formId === "redefinirForm";
+    const senha = document.getElementById("novaSenhaRecuperacao").value;
+    const confirmacao = document.getElementById("confirmarSenhaRecuperacao").value;
+    if (redefinir && senha !== confirmacao) {
+      mensagem.textContent = "As senhas não coincidem.";
+      document.getElementById("confirmarSenhaRecuperacao").focus();
+      return;
+    }
+    bloquearBotao(botao, true);
+    mensagem.textContent = "Processando solicitação...";
+    try {
+      const resultado = await obterJson(await fetch(`${API}${rota}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(redefinir ? {token: tokenRecuperacao, nova_senha: senha, confirmacao}
+          : {email: document.getElementById("recuperarEmail").value.trim()})
+      }));
+      mensagem.textContent = resultado.mensagem;
+      if (redefinir) {
+        tokenRecuperacao = "";
+        document.getElementById(formId).reset();
+        csrfToken = "";
+        aplicarPerfil(null);
+        painelAutenticacao("loginForm");
+        mostrarLogin(resultado.mensagem);
+      }
+    } catch (error) { mensagem.textContent = error.message; }
+    finally { bloquearBotao(botao, false); }
+  });
+}
+if (location.hash.startsWith("#redefinir-senha=")) {
+  tokenRecuperacao = location.hash.slice("#redefinir-senha=".length);
+  history.replaceState(null, "", location.pathname + location.search);
+  painelAutenticacao("redefinirForm");
+}
